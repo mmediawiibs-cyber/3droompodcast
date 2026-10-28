@@ -1,0 +1,2843 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>VoxCast 3D — Orthographic Podcast Studio Designer</title>
+  <script src="https://cdn.tailwindcss.com/3.4.17"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; user-select: none; -webkit-user-select: none; }
+    body, html {
+      margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden;
+      font-family: 'Inter', sans-serif;
+      background-color: #0b0f19;
+      color: #f1f5f9;
+    }
+    .mono { font-family: 'JetBrains Mono', monospace; }
+    .glass-panel {
+      background: rgba(15, 23, 42, 0.84);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      border: 1px solid rgba(148, 163, 184, 0.16);
+      box-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.6);
+    }
+    .custom-scroll::-webkit-scrollbar { width: 5px; height: 5px; }
+    .custom-scroll::-webkit-scrollbar-track { background: rgba(15, 23, 42, 0.4); }
+    .custom-scroll::-webkit-scrollbar-thumb { background: rgba(100, 116, 139, 0.5); border-radius: 9999px; }
+    input[type="range"] {
+      -webkit-appearance: none; appearance: none;
+      background: rgba(51, 65, 85, 0.7);
+      height: 6px; border-radius: 999px; outline: none;
+    }
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none; appearance: none;
+      width: 15px; height: 15px; border-radius: 50%;
+      background: #38bdf8; cursor: pointer;
+      border: 2px solid #0f172a;
+      box-shadow: 0 0 8px rgba(56, 189, 248, 0.6);
+    }
+    .tool-btn.active {
+      background: linear-gradient(135deg, #0284c7, #2563eb);
+      color: #ffffff;
+      border-color: #38bdf8;
+      box-shadow: 0 0 15px rgba(56, 189, 248, 0.35);
+    }
+    .tab-btn.active {
+      background: rgba(56, 189, 248, 0.16);
+      color: #38bdf8;
+      border-color: rgba(56, 189, 248, 0.45);
+    }
+    .cam-card-active {
+      border-color: rgba(56, 189, 248, 0.75) !important;
+      box-shadow: 0 0 0 1px rgba(56, 189, 248, 0.35), 0 12px 24px -8px rgba(2, 132, 199, 0.35);
+    }
+  </style>
+</head>
+<body class="relative w-screen h-screen overflow-hidden select-none">
+
+  <!-- 3D Viewport Container -->
+  <div id="canvas-container" class="absolute inset-0 w-full h-full cursor-grab active:cursor-grabbing"></div>
+
+  <!-- Top Navigation & Status Bar -->
+  <header class="absolute top-3 left-3 right-3 z-20 flex flex-wrap items-center justify-between gap-2 pointer-events-none">
+    <!-- Brand + ON AIR status -->
+    <div class="glass-panel rounded-xl px-3.5 py-2 flex items-center gap-3 pointer-events-auto">
+      <div class="flex items-center gap-2">
+        <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-rose-500 to-amber-500 flex items-center justify-center shadow-lg shadow-rose-500/25">
+          <i data-lucide="radio" class="w-4 h-4 text-white"></i>
+        </div>
+        <div>
+          <div class="flex items-center gap-2">
+            <h1 class="text-sm font-bold tracking-tight text-white">VoxCast 3D</h1>
+            <span class="text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-sky-500/20 text-sky-300 border border-sky-400/30">Ortho Studio</span>
+          </div>
+          <p class="text-[11px] text-slate-400 hidden sm:block">Interactive Isometric Podcast Room & Multi-Cam Switcher</p>
+        </div>
+      </div>
+
+      <div class="h-6 w-px bg-slate-700/70 mx-1"></div>
+
+      <!-- Live ON AIR Toggle -->
+      <button id="btn-on-air" type="button" class="flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all bg-rose-500/20 text-rose-300 border border-rose-500/40 hover:bg-rose-500/30">
+        <span id="on-air-dot" class="w-2 h-2 rounded-full bg-rose-500 animate-ping"></span>
+        <span>ON AIR</span>
+      </button>
+
+      <!-- Audio Test Synth Toggle -->
+      <button id="btn-audio-test" type="button" class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all bg-slate-800/80 text-slate-300 border border-slate-700 hover:border-slate-500" title="Toggle Studio Synth Ambience & Mic Meter">
+        <i data-lucide="activity" class="w-3.5 h-3.5 text-emerald-400"></i>
+        <span id="audio-status-label" class="hidden md:inline">Mic Check: Off</span>
+      </button>
+    </div>
+
+    <!-- Center Tool Mode Switcher -->
+    <div class="glass-panel rounded-xl p-1.5 flex items-center gap-1 pointer-events-auto">
+      <button id="tool-move" type="button" data-tool="move" class="tool-btn active flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border border-transparent text-slate-300 hover:text-white transition-all" title="Select & Drag Furniture on Floor (Shortcut: V)">
+        <i data-lucide="move" class="w-3.5 h-3.5"></i>
+        <span>Move Tool</span>
+      </button>
+      <button id="tool-rotate" type="button" data-tool="rotate" class="tool-btn flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border border-transparent text-slate-300 hover:text-white transition-all" title="Click or Drag to Rotate Selected Item 45° (Shortcut: R)">
+        <i data-lucide="rotate-cw" class="w-3.5 h-3.5"></i>
+        <span>Rotate</span>
+      </button>
+      <button id="tool-camera" type="button" data-tool="camera" class="tool-btn flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border border-transparent text-slate-300 hover:text-white transition-all" title="Orbit & Pan Orthographic Camera (Shortcut: C)">
+        <i data-lucide="video" class="w-3.5 h-3.5"></i>
+        <span>Orbit Cam</span>
+      </button>
+      <div class="h-5 w-px bg-slate-700/70 mx-0.5"></div>
+      <button id="btn-grid-snap" type="button" class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-sky-500/20 text-sky-300 border border-sky-500/30 hover:bg-sky-500/30 transition-all" title="Toggle Floor Grid Snapping">
+        <i data-lucide="grid" class="w-3.5 h-3.5"></i>
+        <span id="snap-label" class="hidden sm:inline">Snap: ON</span>
+      </button>
+    </div>
+
+    <!-- Right Quick Camera Angles & Actions -->
+    <div class="glass-panel rounded-xl px-2.5 py-1.5 flex items-center gap-1.5 pointer-events-auto">
+      <span class="text-[11px] text-slate-400 font-medium px-1 hidden lg:inline">Ortho View:</span>
+      <button type="button" data-cam="iso-ne" class="cam-preset-btn px-2 py-1 rounded text-xs font-medium bg-slate-800 hover:bg-slate-700 text-sky-300 border border-sky-500/30 transition">ISO 1</button>
+      <button type="button" data-cam="iso-se" class="cam-preset-btn px-2 py-1 rounded text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition">ISO 2</button>
+      <button type="button" data-cam="iso-sw" class="cam-preset-btn px-2 py-1 rounded text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition">ISO 3</button>
+      <button type="button" data-cam="top" class="cam-preset-btn px-2 py-1 rounded text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition">Top</button>
+      <div class="h-5 w-px bg-slate-700/70 mx-0.5"></div>
+      <button id="btn-zoom-in" type="button" class="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700" title="Zoom In">
+        <i data-lucide="zoom-in" class="w-3.5 h-3.5"></i>
+      </button>
+      <button id="btn-zoom-out" type="button" class="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700" title="Zoom Out">
+        <i data-lucide="zoom-out" class="w-3.5 h-3.5"></i>
+      </button>
+      <button id="btn-snapshot" type="button" class="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/30 transition" title="Save PNG Snapshot">
+        <i data-lucide="camera" class="w-3.5 h-3.5"></i>
+        <span class="hidden xl:inline">Capture</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- Left Control Dock: Tabs for Furniture/Room, Time of Day, and Studio Lighting -->
+  <aside class="absolute top-20 bottom-14 left-3 z-20 w-80 max-w-[calc(100vw-1.5rem)] flex flex-col pointer-events-none">
+    <div class="glass-panel rounded-2xl flex flex-col max-h-full overflow-hidden pointer-events-auto">
+      <!-- Panel Tab Headers -->
+      <div class="grid grid-cols-4 gap-1 p-1.5 bg-slate-900/70 border-b border-slate-800">
+        <button type="button" data-tab="furniture" class="tab-btn active flex items-center justify-center gap-1 py-2 px-1.5 rounded-lg text-[11px] font-semibold border border-transparent text-slate-400 hover:text-slate-200 transition">
+          <i data-lucide="armchair" class="w-3.5 h-3.5"></i>
+          <span>Furniture</span>
+        </button>
+        <button type="button" data-tab="room" class="tab-btn flex items-center justify-center gap-1 py-2 px-1.5 rounded-lg text-[11px] font-semibold border border-transparent text-slate-400 hover:text-slate-200 transition">
+          <i data-lucide="maximize-2" class="w-3.5 h-3.5"></i>
+          <span>Room Size</span>
+        </button>
+        <button type="button" data-tab="time" class="tab-btn flex items-center justify-center gap-1 py-2 px-1.5 rounded-lg text-[11px] font-semibold border border-transparent text-slate-400 hover:text-slate-200 transition">
+          <i data-lucide="clock" class="w-3.5 h-3.5"></i>
+          <span>Time</span>
+        </button>
+        <button type="button" data-tab="lighting" class="tab-btn flex items-center justify-center gap-1 py-2 px-1.5 rounded-lg text-[11px] font-semibold border border-transparent text-slate-400 hover:text-slate-200 transition">
+          <i data-lucide="lightbulb" class="w-3.5 h-3.5"></i>
+          <span>Lighting</span>
+        </button>
+      </div>
+
+      <!-- TAB 1: FURNITURE & PROPS -->
+      <div id="tab-panel-furniture" class="p-3.5 overflow-y-auto custom-scroll space-y-4">
+        <!-- Studio Layout Presets -->
+        <div>
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Room Layout Presets</span>
+            <button id="btn-reset-room" type="button" class="text-[11px] text-sky-400 hover:text-sky-300 flex items-center gap-1">
+              <i data-lucide="rotate-ccw" class="w-3 h-3"></i> Reset
+            </button>
+          </div>
+          <div class="grid grid-cols-3 gap-1.5">
+            <button type="button" data-layout="classic" class="layout-preset-btn px-2 py-1.5 rounded-lg text-[11px] font-medium bg-slate-800/90 hover:bg-slate-700 text-sky-300 border border-sky-500/30 transition text-center">2-Host Desk</button>
+            <button type="button" data-layout="lounge" class="layout-preset-btn px-2 py-1.5 rounded-lg text-[11px] font-medium bg-slate-800/90 hover:bg-slate-700 text-slate-300 border border-slate-700/80 transition text-center">Sofa Lounge</button>
+            <button type="button" data-layout="roundtable" class="layout-preset-btn px-2 py-1.5 rounded-lg text-[11px] font-medium bg-slate-800/90 hover:bg-slate-700 text-slate-300 border border-slate-700/80 transition text-center">4-Mic Creator</button>
+          </div>
+        </div>
+
+        <!-- Quick Room Dimension Summary Bar -->
+        <div class="p-2.5 rounded-xl bg-slate-900/75 border border-slate-800 flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <i data-lucide="ruler" class="w-4 h-4 text-sky-400"></i>
+            <div>
+              <div class="text-[11px] font-semibold text-slate-200">Studio Floor Dimensions</div>
+              <div id="quick-room-dims-label" class="mono text-[10px] text-sky-300">8.0m × 8.0m • H: 4.2m</div>
+            </div>
+          </div>
+          <button id="btn-jump-room-resize" type="button" class="px-2.5 py-1 rounded-lg text-[11px] font-medium bg-sky-500/20 hover:bg-sky-500/30 text-sky-300 border border-sky-500/30 transition">
+            Resize Room
+          </button>
+        </div>
+
+        <!-- Selected Item Inspector -->
+        <div id="selected-inspector" class="p-3 rounded-xl bg-slate-900/90 border border-slate-700/80 space-y-3">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <span class="w-2 h-2 rounded-full bg-sky-400"></span>
+              <span id="sel-name" class="text-xs font-bold text-white">Podcast Main Desk</span>
+            </div>
+            <span id="sel-coords" class="mono text-[10px] text-slate-400 px-1.5 py-0.5 rounded bg-slate-800">X:0.0 Z:0.0</span>
+          </div>
+
+          <!-- Position & Rotation Controls -->
+          <div class="space-y-2">
+            <div>
+              <div class="flex justify-between text-[11px] text-slate-400 mb-1">
+                <span>Rotation Angle</span>
+                <span id="sel-rot-label" class="mono text-sky-300">0°</span>
+              </div>
+              <div class="flex items-center gap-2">
+                <input id="sel-rot-slider" type="range" min="0" max="360" step="15" value="0" class="w-full" />
+                <button id="btn-rot-45" type="button" class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-[11px] font-medium text-slate-200 border border-slate-700 shrink-0">+45°</button>
+              </div>
+            </div>
+
+            <!-- Nudge D-Pad + Clone/Delete -->
+            <div class="grid grid-cols-2 gap-2 pt-1">
+              <div class="flex items-center gap-1">
+                <button type="button" data-nudge="-0.25,0" class="nudge-btn flex-1 py-1 rounded bg-slate-800 hover:bg-slate-700 text-xs text-slate-300 border border-slate-700" title="Move Left (-X)">←</button>
+                <button type="button" data-nudge="0,-0.25" class="nudge-btn flex-1 py-1 rounded bg-slate-800 hover:bg-slate-700 text-xs text-slate-300 border border-slate-700" title="Move Back (-Z)">↑</button>
+                <button type="button" data-nudge="0,0.25" class="nudge-btn flex-1 py-1 rounded bg-slate-800 hover:bg-slate-700 text-xs text-slate-300 border border-slate-700" title="Move Forward (+Z)">↓</button>
+                <button type="button" data-nudge="0.25,0" class="nudge-btn flex-1 py-1 rounded bg-slate-800 hover:bg-slate-700 text-xs text-slate-300 border border-slate-700" title="Move Right (+X)">→</button>
+              </div>
+              <div class="flex items-center gap-1">
+                <button id="btn-duplicate-item" type="button" class="flex-1 py-1 px-2 rounded bg-sky-500/20 hover:bg-sky-500/30 text-sky-300 border border-sky-500/30 text-[11px] font-medium flex items-center justify-center gap-1">
+                  <i data-lucide="copy" class="w-3 h-3"></i> Clone
+                </button>
+                <button id="btn-delete-item" type="button" class="flex-1 py-1 px-2 rounded bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/30 text-[11px] font-medium flex items-center justify-center gap-1">
+                  <i data-lucide="trash-2" class="w-3 h-3"></i> Delete
+                </button>
+              </div>
+            </div>
+
+            <!-- Finish / Color Swatches -->
+            <div class="pt-1">
+              <span class="block text-[10px] uppercase tracking-wider text-slate-400 mb-1.5">Material Finish / Accent</span>
+              <div class="flex items-center gap-2" id="color-swatch-row">
+                <button type="button" data-color="#8b5a2b" class="swatch-btn w-6 h-6 rounded-full border-2 border-white/40 hover:scale-110 transition" style="background:#8b5a2b" title="Warm Walnut"></button>
+                <button type="button" data-color="#1e293b" class="swatch-btn w-6 h-6 rounded-full border-2 border-white/40 hover:scale-110 transition" style="background:#1e293b" title="Studio Matte Slate"></button>
+                <button type="button" data-color="#b91c1c" class="swatch-btn w-6 h-6 rounded-full border-2 border-white/40 hover:scale-110 transition" style="background:#b91c1c" title="Broadcast Crimson"></button>
+                <button type="button" data-color="#0f766e" class="swatch-btn w-6 h-6 rounded-full border-2 border-white/40 hover:scale-110 transition" style="background:#0f766e" title="Cyber Teal"></button>
+                <button type="button" data-color="#d97706" class="swatch-btn w-6 h-6 rounded-full border-2 border-white/40 hover:scale-110 transition" style="background:#d97706" title="Honey Oak / Amber"></button>
+                <button type="button" data-color="#6d28d9" class="swatch-btn w-6 h-6 rounded-full border-2 border-white/40 hover:scale-110 transition" style="background:#6d28d9" title="Synthwave Violet"></button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Add New Furniture / Gear Catalog -->
+        <div>
+          <span class="block text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-2">Add Studio Furniture & Cameras</span>
+          <div class="grid grid-cols-2 gap-1.5">
+            <!-- Highlighted Phone + Tripod & Cinema Cam at top of catalog -->
+            <button type="button" data-spawn="phonetripod" class="spawn-btn flex items-center gap-2 p-2 rounded-xl bg-sky-500/15 hover:bg-sky-500/25 border border-sky-500/40 text-left transition">
+              <div class="w-7 h-7 rounded-lg bg-sky-500/25 text-sky-300 flex items-center justify-center shrink-0"><i data-lucide="smartphone" class="w-4 h-4"></i></div>
+              <div>
+                <div class="text-xs font-semibold text-white">Phone + Tripod</div>
+                <div class="text-[10px] text-sky-300">+ Live Cam Feed</div>
+              </div>
+            </button>
+            <button type="button" data-spawn="camera" class="spawn-btn flex items-center gap-2 p-2 rounded-xl bg-purple-500/15 hover:bg-purple-500/25 border border-purple-500/40 text-left transition">
+              <div class="w-7 h-7 rounded-lg bg-purple-500/25 text-purple-300 flex items-center justify-center shrink-0"><i data-lucide="video" class="w-4 h-4"></i></div>
+              <div>
+                <div class="text-xs font-semibold text-white">Cinema Cam</div>
+                <div class="text-[10px] text-slate-400">4K Tripod + Tally</div>
+              </div>
+            </button>
+            <button type="button" data-spawn="desk" class="spawn-btn flex items-center gap-2 p-2 rounded-xl bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700/70 text-left transition">
+              <div class="w-7 h-7 rounded-lg bg-amber-500/20 text-amber-300 flex items-center justify-center shrink-0"><i data-lucide="mic" class="w-4 h-4"></i></div>
+              <div>
+                <div class="text-xs font-semibold text-slate-200">Podcast Desk</div>
+                <div class="text-[10px] text-slate-400">2 Mics + Mixer</div>
+              </div>
+            </button>
+            <button type="button" data-spawn="chair" class="spawn-btn flex items-center gap-2 p-2 rounded-xl bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700/70 text-left transition">
+              <div class="w-7 h-7 rounded-lg bg-sky-500/20 text-sky-300 flex items-center justify-center shrink-0"><i data-lucide="armchair" class="w-4 h-4"></i></div>
+              <div>
+                <div class="text-xs font-semibold text-slate-200">Studio Chair</div>
+                <div class="text-[10px] text-slate-400">Ergonomic Swivel</div>
+              </div>
+            </button>
+            <button type="button" data-spawn="sofa" class="spawn-btn flex items-center gap-2 p-2 rounded-xl bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700/70 text-left transition">
+              <div class="w-7 h-7 rounded-lg bg-rose-500/20 text-rose-300 flex items-center justify-center shrink-0"><i data-lucide="sofa" class="w-4 h-4"></i></div>
+              <div>
+                <div class="text-xs font-semibold text-slate-200">Lounge Sofa</div>
+                <div class="text-[10px] text-slate-400">Green-Room Couch</div>
+              </div>
+            </button>
+            <button type="button" data-spawn="rack" class="spawn-btn flex items-center gap-2 p-2 rounded-xl bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700/70 text-left transition">
+              <div class="w-7 h-7 rounded-lg bg-indigo-500/20 text-indigo-300 flex items-center justify-center shrink-0"><i data-lucide="speaker" class="w-4 h-4"></i></div>
+              <div>
+                <div class="text-xs font-semibold text-slate-200">Gear Shelf</div>
+                <div class="text-[10px] text-slate-400">Monitors & Amps</div>
+              </div>
+            </button>
+            <button type="button" data-spawn="plant" class="spawn-btn flex items-center gap-2 p-2 rounded-xl bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700/70 text-left transition">
+              <div class="w-7 h-7 rounded-lg bg-emerald-500/20 text-emerald-300 flex items-center justify-center shrink-0"><i data-lucide="sprout" class="w-4 h-4"></i></div>
+              <div>
+                <div class="text-xs font-semibold text-slate-200">Studio Plant</div>
+                <div class="text-[10px] text-slate-400">Potted Monstera</div>
+              </div>
+            </button>
+            <button type="button" data-spawn="standmic" class="spawn-btn flex items-center gap-2 p-2 rounded-xl bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700/70 text-left transition">
+              <div class="w-7 h-7 rounded-lg bg-teal-500/20 text-teal-300 flex items-center justify-center shrink-0"><i data-lucide="mic-vocal" class="w-4 h-4"></i></div>
+              <div>
+                <div class="text-xs font-semibold text-slate-200">Floor Boom Mic</div>
+                <div class="text-[10px] text-slate-400">Standing Vocal</div>
+              </div>
+            </button>
+            <button type="button" data-spawn="acoustic" class="spawn-btn col-span-2 flex items-center gap-2 p-2 rounded-xl bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700/70 text-left transition">
+              <div class="w-7 h-7 rounded-lg bg-orange-500/20 text-orange-300 flex items-center justify-center shrink-0"><i data-lucide="waves" class="w-4 h-4"></i></div>
+              <div>
+                <div class="text-xs font-semibold text-slate-200">Acoustic Baffle</div>
+                <div class="text-[10px] text-slate-400">Mobile Sound Wall</div>
+              </div>
+            </button>
+          </div>
+        </div>
+
+        <!-- Scene Objects List -->
+        <div>
+          <span class="block text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-1.5">Room Inventory (<span id="inventory-count">0</span>)</span>
+          <div id="inventory-list" class="max-h-36 overflow-y-auto custom-scroll space-y-1 pr-1"></div>
+        </div>
+      </div>
+
+      <!-- TAB 2: ROOM RESIZE & ARCHITECTURE TOOLS -->
+      <div id="tab-panel-room" class="p-3.5 overflow-y-auto custom-scroll space-y-4 hidden">
+        <div class="p-3.5 rounded-xl bg-gradient-to-br from-slate-900 via-slate-900 to-sky-950/50 border border-slate-700/80 space-y-3">
+          <div class="flex items-center justify-between">
+            <div>
+              <span class="text-[10px] font-semibold uppercase tracking-wider text-sky-400">Architecture Tool</span>
+              <h3 class="text-sm font-bold text-white">Resize Studio Room</h3>
+            </div>
+            <span id="room-area-badge" class="mono text-xs font-bold px-2 py-0.5 rounded bg-sky-500/20 text-sky-300 border border-sky-500/30">64.0 m²</span>
+          </div>
+
+          <!-- Room Width (X) -->
+          <div>
+            <div class="flex justify-between text-xs mb-1">
+              <span class="text-slate-300 font-medium">Room Width (X-Axis)</span>
+              <span id="room-width-label" class="mono text-sky-300">8.0 m</span>
+            </div>
+            <input id="room-width-slider" type="range" min="5" max="14" step="0.5" value="8" class="w-full" />
+          </div>
+
+          <!-- Room Depth (Z) -->
+          <div>
+            <div class="flex justify-between text-xs mb-1">
+              <span class="text-slate-300 font-medium">Room Depth (Z-Axis)</span>
+              <span id="room-depth-label" class="mono text-sky-300">8.0 m</span>
+            </div>
+            <input id="room-depth-slider" type="range" min="5" max="14" step="0.5" value="8" class="w-full" />
+          </div>
+
+          <!-- Wall Height (Y) -->
+          <div>
+            <div class="flex justify-between text-xs mb-1">
+              <span class="text-slate-300 font-medium">Ceiling / Wall Height</span>
+              <span id="room-height-label" class="mono text-sky-300">4.2 m</span>
+            </div>
+            <input id="room-height-slider" type="range" min="3.0" max="6.0" step="0.2" value="4.2" class="w-full" />
+          </div>
+        </div>
+
+        <!-- Quick Room Size Presets -->
+        <div>
+          <span class="block text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-2">Quick Room Size Presets</span>
+          <div class="grid grid-cols-2 gap-2">
+            <button type="button" data-roomsize="6,6,3.6" class="room-size-preset p-2.5 rounded-xl bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700 text-left transition">
+              <div class="text-xs font-semibold text-white">Compact Booth</div>
+              <div class="mono text-[10px] text-slate-400">6.0m × 6.0m • H 3.6m</div>
+            </button>
+            <button type="button" data-roomsize="8,8,4.2" class="room-size-preset p-2.5 rounded-xl bg-slate-800/80 hover:bg-slate-700/80 border border-sky-500/40 text-left transition">
+              <div class="text-xs font-semibold text-sky-300">Standard Studio</div>
+              <div class="mono text-[10px] text-slate-400">8.0m × 8.0m • H 4.2m</div>
+            </button>
+            <button type="button" data-roomsize="11,8,4.4" class="room-size-preset p-2.5 rounded-xl bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700 text-left transition">
+              <div class="text-xs font-semibold text-white">Wide Set Stage</div>
+              <div class="mono text-[10px] text-slate-400">11.0m × 8.0m • H 4.4m</div>
+            </button>
+            <button type="button" data-roomsize="12,12,5.2" class="room-size-preset p-2.5 rounded-xl bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700 text-left transition">
+              <div class="text-xs font-semibold text-white">Grand Soundstage</div>
+              <div class="mono text-[10px] text-slate-400">12.0m × 12.0m • H 5.2m</div>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB 3: TIME OF DAY & SKY ENVIRONMENT -->
+      <div id="tab-panel-time" class="p-3.5 overflow-y-auto custom-scroll space-y-4 hidden">
+        <div class="p-3.5 rounded-xl bg-gradient-to-br from-slate-900 via-slate-900 to-indigo-950/60 border border-slate-700/80 space-y-3">
+          <div class="flex items-center justify-between">
+            <div>
+              <span class="text-[10px] font-semibold uppercase tracking-wider text-sky-400">Studio Window Sky</span>
+              <h3 id="time-phase-title" class="text-sm font-bold text-white">Golden Hour Sunset</h3>
+            </div>
+            <div class="text-right">
+              <span id="time-clock-readout" class="mono text-lg font-bold text-amber-300">17:30</span>
+              <span class="block text-[10px] text-slate-400">24H Solar Cycle</span>
+            </div>
+          </div>
+
+          <!-- 24-Hour Slider -->
+          <div>
+            <input id="time-slider" type="range" min="0" max="24" step="0.1" value="17.5" class="w-full" />
+            <div class="flex justify-between text-[10px] mono text-slate-400 mt-1">
+              <span>00:00</span>
+              <span>06:00</span>
+              <span>12:00</span>
+              <span>18:00</span>
+              <span>24:00</span>
+            </div>
+          </div>
+
+          <!-- Auto Time-Lapse Toggle -->
+          <div class="flex items-center justify-between pt-1">
+            <span class="text-xs text-slate-300">Auto Solar Time-Lapse</span>
+            <button id="btn-timelapse" type="button" class="px-3 py-1 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition">
+              Play Cycle
+            </button>
+          </div>
+        </div>
+
+        <!-- Time of Day Quick Presets -->
+        <div>
+          <span class="block text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-2">Time of Day Presets</span>
+          <div class="grid grid-cols-2 gap-2">
+            <button type="button" data-time="6.5" class="time-preset-btn p-2.5 rounded-xl bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700 text-left flex items-center gap-2.5 transition">
+              <div class="w-8 h-8 rounded-lg bg-rose-400/20 text-rose-300 flex items-center justify-center"><i data-lucide="sunrise" class="w-4 h-4"></i></div>
+              <div>
+                <div class="text-xs font-semibold text-white">Morning Dawn</div>
+                <div class="text-[10px] text-slate-400">06:30 • Soft Pink Sun</div>
+              </div>
+            </button>
+            <button type="button" data-time="12.5" class="time-preset-btn p-2.5 rounded-xl bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700 text-left flex items-center gap-2.5 transition">
+              <div class="w-8 h-8 rounded-lg bg-sky-400/20 text-sky-300 flex items-center justify-center"><i data-lucide="sun" class="w-4 h-4"></i></div>
+              <div>
+                <div class="text-xs font-semibold text-white">High Noon</div>
+                <div class="text-[10px] text-slate-400">12:30 • Crisp Daylight</div>
+              </div>
+            </button>
+            <button type="button" data-time="17.5" class="time-preset-btn p-2.5 rounded-xl bg-slate-800/80 hover:bg-slate-700/80 border border-amber-500/40 text-left flex items-center gap-2.5 transition">
+              <div class="w-8 h-8 rounded-lg bg-amber-500/20 text-amber-300 flex items-center justify-center"><i data-lucide="sunset" class="w-4 h-4"></i></div>
+              <div>
+                <div class="text-xs font-semibold text-white">Golden Hour</div>
+                <div class="text-[10px] text-slate-400">17:30 • Warm Sunset</div>
+              </div>
+            </button>
+            <button type="button" data-time="23.0" class="time-preset-btn p-2.5 rounded-xl bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700 text-left flex items-center gap-2.5 transition">
+              <div class="w-8 h-8 rounded-lg bg-indigo-500/20 text-indigo-300 flex items-center justify-center"><i data-lucide="moon-star" class="w-4 h-4"></i></div>
+              <div>
+                <div class="text-xs font-semibold text-white">Late Night</div>
+                <div class="text-[10px] text-slate-400">23:00 • Moonlight Vibe</div>
+              </div>
+            </button>
+          </div>
+        </div>
+
+        <!-- Window Blinds / Natural Light Exposure -->
+        <div class="p-3 rounded-xl bg-slate-900/80 border border-slate-800 space-y-3">
+          <div>
+            <div class="flex justify-between text-xs mb-1">
+              <span class="text-slate-300 font-medium">Window Sun Intensity</span>
+              <span id="sun-intensity-label" class="mono text-sky-300">100%</span>
+            </div>
+            <input id="sun-intensity-slider" type="range" min="0" max="200" value="100" class="w-full" />
+          </div>
+          <div class="flex items-center justify-between pt-1">
+            <span class="text-xs text-slate-300">Acoustic Studio Blinds</span>
+            <button id="btn-toggle-blinds" type="button" class="px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition">
+              Blinds: Open
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB 4: STUDIO LIGHTING RIG -->
+      <div id="tab-panel-lighting" class="p-3.5 overflow-y-auto custom-scroll space-y-4 hidden">
+        <!-- Mood Presets -->
+        <div>
+          <span class="block text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-2">Lighting Mood Presets</span>
+          <div class="grid grid-cols-2 gap-1.5">
+            <button type="button" data-mood="cyber" class="mood-btn px-2.5 py-2 rounded-xl text-xs font-medium bg-slate-800 hover:bg-slate-700 text-fuchsia-300 border border-fuchsia-500/30 transition text-left">
+              <span class="block font-semibold">Cyberpunk Neon</span>
+              <span class="text-[10px] text-slate-400">Magenta + Cyan Rim</span>
+            </button>
+            <button type="button" data-mood="warm" class="mood-btn px-2.5 py-2 rounded-xl text-xs font-medium bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-500/30 transition text-left">
+              <span class="block font-semibold">Fireside Cozy</span>
+              <span class="text-[10px] text-slate-400">2700K Tungsten Glow</span>
+            </button>
+            <button type="button" data-mood="broadcast" class="mood-btn px-2.5 py-2 rounded-xl text-xs font-medium bg-slate-800 hover:bg-slate-700 text-sky-300 border border-sky-500/30 transition text-left">
+              <span class="block font-semibold">Clean Broadcast</span>
+              <span class="text-[10px] text-slate-400">5600K Balanced Key</span>
+            </button>
+            <button type="button" data-mood="noir" class="mood-btn px-2.5 py-2 rounded-xl text-xs font-medium bg-slate-800 hover:bg-slate-700 text-emerald-300 border border-emerald-500/30 transition text-left">
+              <span class="block font-semibold">Emerald Afterhours</span>
+              <span class="text-[10px] text-slate-400">Moody Low-Key Green</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Spawn Additional Movable 3D Light Fixtures -->
+        <div>
+          <span class="block text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-2">Add Movable 3D Light Fixture</span>
+          <div class="grid grid-cols-2 gap-1.5">
+            <button id="btn-add-softbox" type="button" class="flex items-center gap-2 p-2 rounded-xl bg-sky-500/15 hover:bg-sky-500/25 border border-sky-500/30 text-left transition">
+              <div class="w-7 h-7 rounded-lg bg-sky-500/20 text-sky-300 flex items-center justify-center shrink-0">
+                <i data-lucide="spotlight" class="w-4 h-4"></i>
+              </div>
+              <div>
+                <div class="text-xs font-semibold text-white">+ Key Softbox</div>
+                <div class="text-[10px] text-sky-200/70">Movable Tripod</div>
+              </div>
+            </button>
+            <button id="btn-add-rgbtube" type="button" class="flex items-center gap-2 p-2 rounded-xl bg-fuchsia-500/15 hover:bg-fuchsia-500/25 border border-fuchsia-500/30 text-left transition">
+              <div class="w-7 h-7 rounded-lg bg-fuchsia-500/20 text-fuchsia-300 flex items-center justify-center shrink-0">
+                <i data-lucide="wand-sparkles" class="w-4 h-4"></i>
+              </div>
+              <div>
+                <div class="text-xs font-semibold text-white">+ RGB Tube Bar</div>
+                <div class="text-[10px] text-fuchsia-200/70">Standing LED Neon</div>
+              </div>
+            </button>
+          </div>
+        </div>
+
+        <!-- Individual Light Channels Controller -->
+        <div class="space-y-2.5" id="light-channels-container">
+          <!-- Populated dynamically by JS -->
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- RIGHT DOCK: LIVE MULTI-CAMERA / PHONE DISPLAY MONITORS & LENS TOOLS -->
+  <aside id="right-camera-dock" class="absolute top-20 bottom-14 right-3 z-20 w-80 max-w-[calc(100vw-1.5rem)] flex flex-col pointer-events-none">
+    <div class="glass-panel rounded-2xl flex flex-col max-h-full overflow-hidden pointer-events-auto">
+      <!-- Monitor Dock Header -->
+      <div class="p-3 bg-slate-900/80 border-b border-slate-800 flex items-center justify-between gap-2">
+        <div class="flex items-center gap-2">
+          <span class="w-2 h-2 rounded-full bg-rose-500 animate-pulse"></span>
+          <div>
+            <div class="flex items-center gap-1.5">
+              <h2 class="text-xs font-bold uppercase tracking-wider text-white">Camera / Phone Feeds</h2>
+              <span id="cam-feed-count" class="mono text-[10px] font-bold px-1.5 py-0.5 rounded bg-sky-500/20 text-sky-300 border border-sky-500/30">0</span>
+            </div>
+            <p class="text-[10px] text-slate-400">Auto-expands per Camera or Phone+Tripod</p>
+          </div>
+        </div>
+        <!-- Quick Add Phone+Tripod or Cam right from monitor dock -->
+        <div class="flex items-center gap-1">
+          <button id="btn-quick-add-phone" type="button" class="px-2 py-1 rounded-lg bg-sky-500/20 hover:bg-sky-500/30 text-sky-300 border border-sky-500/40 text-[10px] font-semibold flex items-center gap-1 transition" title="Add Phone + Tripod to Studio">
+            <i data-lucide="smartphone" class="w-3 h-3"></i> +Phone
+          </button>
+          <button id="btn-quick-add-cam" type="button" class="px-2 py-1 rounded-lg bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 border border-purple-500/40 text-[10px] font-semibold flex items-center gap-1 transition" title="Add 4K Cinema Camera to Studio">
+            <i data-lucide="video" class="w-3 h-3"></i> +Cam
+          </button>
+        </div>
+      </div>
+
+      <!-- Scrollable List of Live Camera / Phone Viewfinder Displays -->
+      <div id="camera-monitors-list" class="p-3 overflow-y-auto custom-scroll space-y-3">
+        <!-- Populated dynamically for each Cinema Cam & Phone+Tripod in the scene -->
+      </div>
+    </div>
+  </aside>
+
+  <!-- Bottom Helper HUD Bar -->
+  <footer class="absolute bottom-3 left-3 right-3 z-20 flex items-center justify-between pointer-events-none">
+    <div class="glass-panel rounded-xl px-3.5 py-2 flex items-center gap-4 text-xs text-slate-300 pointer-events-auto">
+      <div class="flex items-center gap-1.5">
+        <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+        <span id="hud-hint">Click any furniture, camera, or phone tripod in 3D to drag on the floor or adjust its live lens feed.</span>
+      </div>
+      <div class="hidden xl:flex items-center gap-2 text-[11px] text-slate-400 border-l border-slate-700 pl-3">
+        <span><strong class="text-slate-200">R</strong> Rotate 45°</span>
+        <span>•</span>
+        <span><strong class="text-slate-200">Del</strong> Remove</span>
+        <span>•</span>
+        <span><strong class="text-slate-200">Right-Drag / Scroll</strong> Orbit & Zoom</span>
+      </div>
+    </div>
+
+    <!-- Live VU Meter Bar -->
+    <div class="glass-panel rounded-xl px-3 py-2 hidden sm:flex items-center gap-2 pointer-events-auto">
+      <span class="mono text-[10px] uppercase tracking-wider text-slate-400">Master Bus</span>
+      <div class="flex items-end gap-0.5 h-4 w-20" id="vu-meter-bars">
+        <div class="w-1.5 bg-emerald-400 rounded-sm h-2 transition-all"></div>
+        <div class="w-1.5 bg-emerald-400 rounded-sm h-3 transition-all"></div>
+        <div class="w-1.5 bg-emerald-400 rounded-sm h-2.5 transition-all"></div>
+        <div class="w-1.5 bg-emerald-400 rounded-sm h-3.5 transition-all"></div>
+        <div class="w-1.5 bg-amber-400 rounded-sm h-2 transition-all"></div>
+        <div class="w-1.5 bg-amber-400 rounded-sm h-1.5 transition-all"></div>
+        <div class="w-1.5 bg-rose-500 rounded-sm h-1 transition-all"></div>
+      </div>
+    </div>
+  </footer>
+
+  <!-- Toast Notification -->
+  <div id="toast-msg" class="fixed top-16 left-1/2 -translate-x-1/2 z-50 glass-panel px-4 py-2 rounded-xl text-xs font-medium text-sky-300 border border-sky-500/40 opacity-0 pointer-events-none transition-all duration-300 transform -translate-y-2">
+    Studio updated
+  </div>
+
+  <script>
+    // Initialize Lucide icons
+    lucide.createIcons();
+
+    // Toast helper
+    let toastTimer = null;
+    function showToast(text) {
+      const el = document.getElementById('toast-msg');
+      el.textContent = text;
+      el.classList.remove('opacity-0', '-translate-y-2');
+      el.classList.add('opacity-100', 'translate-y-0');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => {
+        el.classList.add('opacity-0', '-translate-y-2');
+        el.classList.remove('opacity-100', 'translate-y-0');
+      }, 2200);
+    }
+
+    // ==========================================
+    // THREE.JS ORTHOGRAPHIC 3D PODCAST STUDIO
+    // ==========================================
+    const container = document.getElementById('canvas-container');
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x0b0f19);
+
+    // Orthographic Camera configuration
+    let frustumSize = 12.0;
+    let aspect = window.innerWidth / window.innerHeight;
+    const camera = new THREE.OrthographicCamera(
+      (frustumSize * aspect) / -2,
+      (frustumSize * aspect) / 2,
+      frustumSize / 2,
+      frustumSize / -2,
+      0.1,
+      120
+    );
+
+    // Spherical / Isometric Orbit Coordinates
+    const camState = {
+      theta: Math.PI / 4,
+      phi: Math.atan(1 / Math.sqrt(2)),
+      targetTheta: Math.PI / 4,
+      targetPhi: Math.atan(1 / Math.sqrt(2)),
+      zoom: 1.0,
+      targetZoom: 1.0,
+      panOffset: new THREE.Vector3(0, 1.1, 0),
+      targetPan: new THREE.Vector3(0, 1.1, 0),
+      radius: 24
+    };
+
+    function updateCameraTransform() {
+      camState.theta += (camState.targetTheta - camState.theta) * 0.14;
+      camState.phi += (camState.targetPhi - camState.phi) * 0.14;
+      camState.zoom += (camState.targetZoom - camState.zoom) * 0.14;
+      camState.panOffset.lerp(camState.targetPan, 0.14);
+
+      const x = camState.radius * Math.cos(camState.phi) * Math.sin(camState.theta);
+      const y = camState.radius * Math.sin(camState.phi);
+      const z = camState.radius * Math.cos(camState.phi) * Math.cos(camState.theta);
+
+      camera.position.set(
+        camState.panOffset.x + x,
+        camState.panOffset.y + y,
+        camState.panOffset.z + z
+      );
+      camera.lookAt(camState.panOffset);
+      camera.zoom = camState.zoom;
+      camera.updateProjectionMatrix();
+    }
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.outputEncoding = THREE.sRGBEncoding;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.05;
+    container.appendChild(renderer.domElement);
+
+    // Offscreen WebGLRenderer dedicated to rendering the right-side Camera/Phone Feeds smoothly
+    const pipRenderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+    pipRenderer.setSize(320, 180);
+    pipRenderer.shadowMap.enabled = true;
+    pipRenderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    pipRenderer.outputEncoding = THREE.sRGBEncoding;
+    pipRenderer.toneMapping = THREE.ACESFilmicToneMapping;
+    pipRenderer.toneMappingExposure = 1.08;
+
+    // ==========================================
+    // DYNAMIC STUDIO ROOM ARCHITECTURE (RESIZABLE!)
+    // ==========================================
+    let roomWidth = 8.0;
+    let roomDepth = 8.0;
+    let wallHeight = 4.2;
+    const WALL_THICKNESS = 0.25;
+
+    const roomGroup = new THREE.Group();
+    scene.add(roomGroup);
+
+    // Procedural Wood Plank Texture for Studio Floor
+    function createWoodFloorTexture() {
+      const c = document.createElement('canvas');
+      c.width = 512;
+      c.height = 512;
+      const ctx = c.getContext('2d');
+      ctx.fillStyle = '#3b2618';
+      ctx.fillRect(0, 0, 512, 512);
+      const planks = 16;
+      const plankH = 512 / planks;
+      for (let i = 0; i < planks; i++) {
+        const y = i * plankH;
+        const shade = (i % 3 === 0) ? '#442c1c' : (i % 2 === 0 ? '#362215' : '#3e281a');
+        ctx.fillStyle = shade;
+        ctx.fillRect(0, y + 1, 512, plankH - 2);
+        ctx.strokeStyle = '#24150c';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(512, y);
+        ctx.stroke();
+        const jointX = ((i * 137) % 420) + 40;
+        ctx.beginPath();
+        ctx.moveTo(jointX, y);
+        ctx.lineTo(jointX, y + plankH);
+        ctx.stroke();
+      }
+      const tex = new THREE.CanvasTexture(c);
+      tex.wrapS = THREE.RepeatWrapping;
+      tex.wrapT = THREE.RepeatWrapping;
+      tex.repeat.set(3, 3);
+      return tex;
+    }
+
+    const woodFloorTex = createWoodFloorTexture();
+    const floorMat = new THREE.MeshStandardMaterial({
+      map: woodFloorTex,
+      roughness: 0.55,
+      metalness: 0.08
+    });
+    const wallMat = new THREE.MeshStandardMaterial({ color: 0x1e2430, roughness: 0.85 });
+    const trimMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.6 });
+    const woodSlatMat = new THREE.MeshStandardMaterial({ color: 0x7c4a27, roughness: 0.6 });
+    const windowGlassMat = new THREE.MeshPhysicalMaterial({
+      color: 0xbae6fd,
+      transparent: true,
+      opacity: 0.22,
+      roughness: 0.1,
+      transmission: 0.6
+    });
+    const skyVistaMat = new THREE.MeshBasicMaterial({ color: 0xf97316 });
+    const celestialOrbMat = new THREE.MeshBasicMaterial({ color: 0xfde047 });
+
+    let floorMesh = null;
+    let gridHelper = null;
+    let celestialOrb = null;
+    let blindsGroup = new THREE.Group();
+    let blindsClosed = false;
+    let isOnAir = true;
+
+    function createOnAirTexture(isOn) {
+      const c = document.createElement('canvas');
+      c.width = 512;
+      c.height = 170;
+      const ctx = c.getContext('2d');
+      ctx.fillStyle = isOn ? '#1f070b' : '#111827';
+      ctx.fillRect(0, 0, 512, 170);
+      ctx.strokeStyle = isOn ? '#fb7185' : '#374151';
+      ctx.lineWidth = 8;
+      ctx.strokeRect(12, 12, 488, 146);
+      ctx.font = 'bold 88px Inter, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      if (isOn) {
+        ctx.shadowColor = '#f43f5e';
+        ctx.shadowBlur = 25;
+        ctx.fillStyle = '#ffe4e6';
+      } else {
+        ctx.fillStyle = '#4b5563';
+      }
+      ctx.fillText('ON AIR', 256, 88);
+      return new THREE.CanvasTexture(c);
+    }
+
+    const onAirFaceMat = new THREE.MeshBasicMaterial({ map: createOnAirTexture(true) });
+
+    // 3D Pyramid Acoustic Foam Panels helper
+    function createAcousticPanelCluster(x, y, z, rotY, cols, rows, colorHex) {
+      const cluster = new THREE.Group();
+      const foamMat = new THREE.MeshStandardMaterial({ color: colorHex, roughness: 0.9 });
+      const tileW = 0.36;
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          const base = new THREE.Mesh(new THREE.BoxGeometry(tileW - 0.03, tileW - 0.03, 0.06), foamMat);
+          base.position.set((c - (cols - 1) / 2) * tileW, (r - (rows - 1) / 2) * tileW, 0);
+          const cone = new THREE.Mesh(new THREE.ConeGeometry(0.13, 0.09, 4), foamMat);
+          cone.rotation.x = Math.PI / 2;
+          cone.rotation.z = Math.PI / 4;
+          cone.position.z = 0.05;
+          base.add(cone);
+          cluster.add(base);
+        }
+      }
+      cluster.position.set(x, y, z);
+      cluster.rotation.y = rotY;
+      return cluster;
+    }
+
+    // Lighting objects referenced by room builder
+    const hemiLight = new THREE.HemisphereLight(0xffedd5, 0x1e293b, 0.55);
+    scene.add(hemiLight);
+
+    const sunLight = new THREE.DirectionalLight(0xffb46b, 1.15);
+    sunLight.position.set(-9, 7, 2);
+    sunLight.castShadow = true;
+    sunLight.shadow.mapSize.width = 2048;
+    sunLight.shadow.mapSize.height = 2048;
+    sunLight.shadow.camera.near = 0.5;
+    sunLight.shadow.camera.far = 38;
+    const d = 10;
+    sunLight.shadow.camera.left = -d;
+    sunLight.shadow.camera.right = d;
+    sunLight.shadow.camera.top = d;
+    sunLight.shadow.camera.bottom = -d;
+    sunLight.shadow.bias = -0.0005;
+    scene.add(sunLight);
+
+    const onAirLight = new THREE.PointLight(0xf43f5e, 1.1, 5.5);
+    scene.add(onAirLight);
+
+    const overheadLight = new THREE.PointLight(0xffe4b5, 1.1, 14);
+    overheadLight.position.set(0, 3.8, 0);
+    overheadLight.castShadow = true;
+    overheadLight.shadow.bias = -0.001;
+    scene.add(overheadLight);
+
+    // Rebuild Studio Room Geometry whenever roomWidth, roomDepth, or wallHeight changes
+    function buildStudioRoomGeometry() {
+      while (roomGroup.children.length > 0) {
+        const ch = roomGroup.children.pop();
+        roomGroup.remove(ch);
+      }
+
+      woodFloorTex.repeat.set(roomWidth / 2.6, roomDepth / 2.6);
+
+      // 1. Floor
+      floorMesh = new THREE.Mesh(new THREE.BoxGeometry(roomWidth, 0.25, roomDepth), floorMat);
+      floorMesh.position.set(0, -0.125, 0);
+      floorMesh.receiveShadow = true;
+      roomGroup.add(floorMesh);
+
+      // 2. Floor Grid Helper (rectangular lines matching roomWidth x roomDepth)
+      const gridGroup = new THREE.Group();
+      const lineMat = new THREE.LineBasicMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.18 });
+      const step = 0.5;
+      const halfW = roomWidth / 2 - 0.2;
+      const halfD = roomDepth / 2 - 0.2;
+      const points = [];
+      for (let x = -halfW; x <= halfW + 0.001; x += step) {
+        points.push(new THREE.Vector3(x, 0.006, -halfD), new THREE.Vector3(x, 0.006, halfD));
+      }
+      for (let z = -halfD; z <= halfD + 0.001; z += step) {
+        points.push(new THREE.Vector3(-halfW, 0.006, z), new THREE.Vector3(halfW, 0.006, z));
+      }
+      const gridGeo = new THREE.BufferGeometry().setFromPoints(points);
+      gridHelper = new THREE.LineSegments(gridGeo, lineMat);
+      gridHelper.visible = typeof snapToGrid !== 'undefined' ? snapToGrid : true;
+      roomGroup.add(gridHelper);
+
+      // 3. Back Wall (along X at Z = -roomDepth/2)
+      const backWall = new THREE.Mesh(
+        new THREE.BoxGeometry(roomWidth + WALL_THICKNESS, wallHeight, WALL_THICKNESS),
+        wallMat
+      );
+      backWall.position.set(-WALL_THICKNESS / 2, wallHeight / 2 - 0.125, -roomDepth / 2 - WALL_THICKNESS / 2);
+      backWall.receiveShadow = true;
+      backWall.castShadow = true;
+      roomGroup.add(backWall);
+
+      // 4. Left Wall with Window Cutout (along Z at X = -roomWidth/2)
+      const winWidth = Math.min(3.3, roomDepth * 0.45);
+      const winBottomY = 1.0;
+      const winHeight = Math.min(2.1, wallHeight - 1.5);
+      const topWallH = Math.max(0.4, wallHeight - (winBottomY + winHeight));
+
+      const leftWallBottom = new THREE.Mesh(
+        new THREE.BoxGeometry(WALL_THICKNESS, winBottomY, roomDepth),
+        wallMat
+      );
+      leftWallBottom.position.set(-roomWidth / 2 - WALL_THICKNESS / 2, winBottomY / 2 - 0.125, 0);
+      leftWallBottom.receiveShadow = true;
+      leftWallBottom.castShadow = true;
+      roomGroup.add(leftWallBottom);
+
+      const leftWallTop = new THREE.Mesh(
+        new THREE.BoxGeometry(WALL_THICKNESS, topWallH, roomDepth),
+        wallMat
+      );
+      leftWallTop.position.set(-roomWidth / 2 - WALL_THICKNESS / 2, wallHeight - topWallH / 2 - 0.125, 0);
+      leftWallTop.receiveShadow = true;
+      leftWallTop.castShadow = true;
+      roomGroup.add(leftWallTop);
+
+      const sidePillarLen = Math.max(0.6, (roomDepth - winWidth) / 2);
+      const winCenterY = winBottomY + winHeight / 2 - 0.125;
+
+      const leftPillarBack = new THREE.Mesh(
+        new THREE.BoxGeometry(WALL_THICKNESS, winHeight + 0.1, sidePillarLen),
+        wallMat
+      );
+      leftPillarBack.position.set(-roomWidth / 2 - WALL_THICKNESS / 2, winCenterY, -roomDepth / 2 + sidePillarLen / 2);
+      leftPillarBack.receiveShadow = true;
+      leftPillarBack.castShadow = true;
+      roomGroup.add(leftPillarBack);
+
+      const leftPillarFront = new THREE.Mesh(
+        new THREE.BoxGeometry(WALL_THICKNESS, winHeight + 0.1, sidePillarLen),
+        wallMat
+      );
+      leftPillarFront.position.set(-roomWidth / 2 - WALL_THICKNESS / 2, winCenterY, roomDepth / 2 - sidePillarLen / 2);
+      leftPillarFront.receiveShadow = true;
+      leftPillarFront.castShadow = true;
+      roomGroup.add(leftPillarFront);
+
+      // Window Glass
+      const windowGlass = new THREE.Mesh(new THREE.BoxGeometry(0.06, winHeight, winWidth), windowGlassMat);
+      windowGlass.position.set(-roomWidth / 2 - WALL_THICKNESS / 2, winCenterY, 0);
+      roomGroup.add(windowGlass);
+
+      // Exterior Sky Vista & Celestial Orb
+      const skyVista = new THREE.Mesh(new THREE.PlaneGeometry(winWidth + 2.2, winHeight + 1.5), skyVistaMat);
+      skyVista.position.set(-roomWidth / 2 - 1.35, winCenterY + 0.1, 0);
+      skyVista.rotation.y = Math.PI / 2;
+      roomGroup.add(skyVista);
+
+      celestialOrb = new THREE.Mesh(new THREE.SphereGeometry(0.42, 24, 24), celestialOrbMat);
+      celestialOrb.position.set(-roomWidth / 2 - 1.15, winCenterY + 0.3, 0.3);
+      roomGroup.add(celestialOrb);
+
+      // Silhouette City Skyline outside window
+      const cityGroup = new THREE.Group();
+      const cityMat = new THREE.MeshBasicMaterial({ color: 0x0f172a });
+      const buildingHeights = [0.7, 1.1, 0.85, 1.35, 0.95, 1.2, 0.65, 1.0];
+      buildingHeights.forEach((bh, idx) => {
+        const bMesh = new THREE.Mesh(new THREE.BoxGeometry(0.12, bh, 0.42), cityMat);
+        bMesh.position.set(-roomWidth / 2 - 1.05, 0.9 + bh / 2, -1.45 + idx * 0.42);
+        cityGroup.add(bMesh);
+      });
+      roomGroup.add(cityGroup);
+
+      // Window Blinds
+      blindsGroup = new THREE.Group();
+      const blindSlatMat = new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.5 });
+      const slatCount = Math.floor(winHeight / 0.22);
+      for (let i = 0; i < slatCount; i++) {
+        const slat = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.04, winWidth - 0.05), blindSlatMat);
+        slat.position.set(-roomWidth / 2 - 0.12, winBottomY + 0.1 + i * 0.22, 0);
+        slat.rotation.z = 0.25;
+        blindsGroup.add(slat);
+      }
+      blindsGroup.visible = blindsClosed;
+      roomGroup.add(blindsGroup);
+
+      // Wood Slat Accent Wall on Left Portion of Back Wall
+      const slatSectionW = Math.min(3.2, roomWidth * 0.38);
+      const numSlats = Math.floor(slatSectionW / 0.14);
+      for (let i = 0; i < numSlats; i++) {
+        const slat = new THREE.Mesh(new THREE.BoxGeometry(0.06, wallHeight - 0.3, 0.07), woodSlatMat);
+        slat.position.set(-roomWidth / 2 + 0.25 + i * 0.14, wallHeight / 2, -roomDepth / 2 + 0.03);
+        slat.castShadow = true;
+        slat.receiveShadow = true;
+        roomGroup.add(slat);
+      }
+
+      // Acoustic Panels on Back Wall
+      roomGroup.add(createAcousticPanelCluster(roomWidth * 0.1, wallHeight * 0.56, -roomDepth / 2 + 0.04, 0, 5, 3, 0x262f3f));
+      roomGroup.add(createAcousticPanelCluster(roomWidth * 0.34, wallHeight * 0.56, -roomDepth / 2 + 0.04, 0, 3, 3, 0x7f1d1d));
+
+      // "ON AIR" Neon Sign
+      const onAirSignGroup = new THREE.Group();
+      const signBack = new THREE.Mesh(
+        new THREE.BoxGeometry(1.55, 0.52, 0.08),
+        new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.4, metalness: 0.5 })
+      );
+      onAirSignGroup.add(signBack);
+      const onAirFace = new THREE.Mesh(new THREE.PlaneGeometry(1.45, 0.44), onAirFaceMat);
+      onAirFace.position.z = 0.045;
+      onAirSignGroup.add(onAirFace);
+
+      const signX = -roomWidth / 2 + Math.min(1.8, roomWidth * 0.24);
+      const signY = wallHeight - 0.85;
+      onAirSignGroup.position.set(signX, signY, -roomDepth / 2 + 0.06);
+      roomGroup.add(onAirSignGroup);
+
+      onAirLight.position.set(signX, signY, -roomDepth / 2 + 0.45);
+      overheadLight.position.set(0, wallHeight - 0.35, 0);
+
+      // Center Studio Rug scaled nicely to room
+      const rugRadius = Math.min(2.35, Math.min(roomWidth, roomDepth) * 0.3);
+      const rugMesh = new THREE.Mesh(
+        new THREE.CylinderGeometry(rugRadius, rugRadius, 0.02, 48),
+        new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.95 })
+      );
+      rugMesh.position.set(0, 0.01, 0.15);
+      rugMesh.receiveShadow = true;
+      roomGroup.add(rugMesh);
+
+      const rugInner = new THREE.Mesh(
+        new THREE.CylinderGeometry(rugRadius * 0.78, rugRadius * 0.78, 0.024, 48),
+        new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.95 })
+      );
+      rugInner.position.set(0, 0.012, 0.15);
+      rugInner.receiveShadow = true;
+      roomGroup.add(rugInner);
+
+      // Update UI labels
+      const area = (roomWidth * roomDepth).toFixed(1);
+      document.getElementById('room-area-badge').textContent = `${area} m²`;
+      document.getElementById('room-width-label').textContent = `${roomWidth.toFixed(1)} m`;
+      document.getElementById('room-depth-label').textContent = `${roomDepth.toFixed(1)} m`;
+      document.getElementById('room-height-label').textContent = `${wallHeight.toFixed(1)} m`;
+      document.getElementById('quick-room-dims-label').textContent =
+        `${roomWidth.toFixed(1)}m × ${roomDepth.toFixed(1)}m • H: ${wallHeight.toFixed(1)}m`;
+
+      // Clamp any existing furniture items inside new room boundaries
+      if (typeof furnitureItems !== 'undefined') {
+        furnitureItems.forEach((item) => {
+          const r = item.userData.radius || 0.6;
+          item.position.x = clampToStudioFloorX(item.position.x, r);
+          item.position.z = clampToStudioFloorZ(item.position.z, r);
+        });
+        if (selectedItem) selectFurniture(selectedItem);
+      }
+    }
+
+    // Studio Light Channels Registry
+    const studioLights = [];
+
+    function registerStudioLight(config) {
+      studioLights.push(config);
+      renderLightChannelsUI();
+    }
+
+    registerStudioLight({
+      id: 'light-overhead',
+      name: 'Overhead Studio Dome',
+      type: 'Ceiling Downlight',
+      light: overheadLight,
+      enabled: true,
+      intensity: 1.1,
+      color: '#ffe4b5',
+      emissiveMesh: null
+    });
+
+    // ==========================================
+    // MULTI-CAMERA & PHONE+TRIPOD FEED REGISTRY
+    // ==========================================
+    const studioCameras = []; // Each entry links a 3D furniture rig (camera or phonetripod) to its live PerspectiveCamera & UI card
+
+    function computeOpticalFov(focalLengthMm, zoomFactor, orientation) {
+      // Full-frame sensor: 24mm vertical height in landscape, 36mm vertical height in portrait
+      const sensorHeightMm = orientation === 'portrait' ? 36 : 24;
+      const effectiveFocal = focalLengthMm * zoomFactor;
+      const fovRad = 2 * Math.atan(sensorHeightMm / (2 * effectiveFocal));
+      return THREE.MathUtils.radToDeg(fovRad);
+    }
+
+    function registerCameraFeed(furnitureGroup, camConfig) {
+      const aspectVal = camConfig.orientation === 'portrait' ? 9 / 16 : 16 / 9;
+      const fov = computeOpticalFov(camConfig.focalLength, camConfig.zoom, camConfig.orientation);
+      const perspCam = new THREE.PerspectiveCamera(fov, aspectVal, 0.15, 45);
+
+      const entry = {
+        id: 'camfeed-' + furnitureGroup.userData.id,
+        furnitureItem: furnitureGroup,
+        name: camConfig.name,
+        deviceType: camConfig.deviceType, // 'camera' | 'phonetripod'
+        camera: perspCam,
+        orientation: camConfig.orientation || 'landscape', // 'landscape' | 'portrait'
+        focalLength: camConfig.focalLength || 35,          // 18mm - 200mm
+        zoom: camConfig.zoom || 1.0,                       // 1.0x - 3.0x
+        pitchDeg: camConfig.pitchDeg || -6,                // tilt angle
+        lensMountHeight: camConfig.lensMountHeight || 1.34,
+        lensBarrelMesh: camConfig.lensBarrelMesh || null,
+        phoneMountGroup: camConfig.phoneMountGroup || null,
+        canvasEl: null,
+        ctx2d: null
+      };
+
+      furnitureGroup.userData.linkedCameraId = entry.id;
+      studioCameras.push(entry);
+      renderCameraMonitorsUI();
+      return entry;
+    }
+
+    function syncCameraRigTransform(entry) {
+      const item = entry.furnitureItem;
+      if (!item) return;
+
+      // Update physical 3D lens extension based on 18mm-200mm focal length
+      if (entry.lensBarrelMesh) {
+        const normFocal = (entry.focalLength - 18) / (200 - 18); // 0 to 1
+        entry.lensBarrelMesh.scale.y = 1 + normFocal * 1.35;
+        entry.lensBarrelMesh.position.z = 0.24 + normFocal * 0.11;
+      }
+
+      // Rotate physical 3D smartphone clamp between Portrait (vertical) and Landscape (horizontal)
+      if (entry.phoneMountGroup) {
+        entry.phoneMountGroup.rotation.z = entry.orientation === 'portrait' ? 0 : Math.PI / 2;
+      }
+
+      // Update Three.js PerspectiveCamera lens parameters
+      entry.camera.aspect = entry.orientation === 'portrait' ? 9 / 16 : 16 / 9;
+      entry.camera.fov = computeOpticalFov(entry.focalLength, entry.zoom, entry.orientation);
+      entry.camera.updateProjectionMatrix();
+
+      // Position PerspectiveCamera at the physical lens tip facing forward along the rig's rotation.y
+      const yaw = item.rotation.y;
+      const forwardX = Math.sin(yaw);
+      const forwardZ = Math.cos(yaw);
+      const lensOffset = entry.deviceType === 'phonetripod' ? 0.18 : 0.36;
+
+      const camX = item.position.x + forwardX * lensOffset;
+      const camY = item.position.y + entry.lensMountHeight;
+      const camZ = item.position.z + forwardZ * lensOffset;
+
+      entry.camera.position.set(camX, camY, camZ);
+
+      const pitchRad = THREE.MathUtils.degToRad(entry.pitchDeg);
+      const lookDist = 5.0;
+      const targetX = camX + forwardX * Math.cos(pitchRad) * lookDist;
+      const targetY = camY + Math.sin(pitchRad) * lookDist;
+      const targetZ = camZ + forwardZ * Math.cos(pitchRad) * lookDist;
+
+      entry.camera.lookAt(targetX, targetY, targetZ);
+    }
+
+    function renderCameraMonitorsUI() {
+      const listEl = document.getElementById('camera-monitors-list');
+      const countEl = document.getElementById('cam-feed-count');
+      if (!listEl || !countEl) return;
+
+      countEl.textContent = studioCameras.length;
+      listEl.innerHTML = '';
+
+      if (studioCameras.length === 0) {
+        listEl.innerHTML = `
+          <div class="p-4 rounded-xl bg-slate-900/70 border border-slate-800 text-center space-y-2">
+            <p class="text-xs text-slate-300 font-medium">No active Camera or Phone+Tripod in studio.</p>
+            <p class="text-[11px] text-slate-400">Click <strong>+Phone</strong> or <strong>+Cam</strong> above to place a rig and open its live viewfinder.</p>
+          </div>
+        `;
+        return;
+      }
+
+      studioCameras.forEach((entry, idx) => {
+        const isSelected = selectedItem === entry.furnitureItem;
+        const card = document.createElement('div');
+        card.id = 'card-' + entry.id;
+        card.className = `p-2.5 rounded-xl bg-slate-900/90 border border-slate-800 space-y-2.5 transition ${
+          isSelected ? 'cam-card-active' : ''
+        }`;
+
+        const isPortrait = entry.orientation === 'portrait';
+        const badgeColor = entry.deviceType === 'phonetripod'
+          ? 'bg-sky-500/20 text-sky-300 border-sky-500/30'
+          : 'bg-purple-500/20 text-purple-300 border-purple-500/30';
+
+        card.innerHTML = `
+          <!-- Card Header -->
+          <div class="flex items-center justify-between gap-1">
+            <button type="button" class="select-cam-btn flex items-center gap-1.5 text-left group">
+              <span class="w-2 h-2 rounded-full bg-rose-500"></span>
+              <span class="text-xs font-bold text-white group-hover:text-sky-300 transition">CAM ${idx + 1}: ${entry.name}</span>
+            </button>
+            <div class="flex items-center gap-1">
+              <span class="mono text-[10px] px-1.5 py-0.5 rounded border ${badgeColor}">
+                ${entry.focalLength}mm • ${entry.zoom.toFixed(1)}x
+              </span>
+            </div>
+          </div>
+
+          <!-- Live Viewfinder Canvas Wrapper (Adapts to Portrait 9:16 vs Landscape 16:9) -->
+          <div class="relative w-full bg-slate-950 rounded-lg overflow-hidden border border-slate-800 flex items-center justify-center py-1">
+            <canvas class="cam-feed-canvas rounded bg-black cursor-pointer"
+              width="${isPortrait ? 158 : 280}"
+              height="${isPortrait ? 240 : 158}"
+              style="width:${isPortrait ? '135px' : '100%'}; height:${isPortrait ? '205px' : '148px'}; object-fit:cover;">
+            </canvas>
+            <!-- Viewfinder HUD Overlay -->
+            <div class="absolute top-2 left-2.5 flex items-center gap-1.5 px-1.5 py-0.5 rounded bg-black/65 backdrop-blur-sm pointer-events-none">
+              <span class="w-1.5 h-1.5 rounded-full bg-rose-500 animate-ping"></span>
+              <span class="mono text-[9px] font-semibold text-white">REC ${isPortrait ? '9:16' : '16:9'}</span>
+            </div>
+            <div class="absolute bottom-2 right-2.5 px-1.5 py-0.5 rounded bg-black/65 mono text-[9px] text-amber-300 pointer-events-none">
+              f/2.8 • ISO 400
+            </div>
+          </div>
+
+          <!-- Portrait / Landscape Orientation Switcher -->
+          <div class="grid grid-cols-2 gap-1.5">
+            <button type="button" data-orient="landscape" class="orient-btn py-1 px-2 rounded-lg text-[11px] font-semibold border transition flex items-center justify-center gap-1 ${
+              !isPortrait
+                ? 'bg-sky-500/20 text-sky-300 border-sky-500/40'
+                : 'bg-slate-800/80 text-slate-400 border-slate-700/70 hover:text-slate-200'
+            }">
+              <span>Landscape 16:9</span>
+            </button>
+            <button type="button" data-orient="portrait" class="orient-btn py-1 px-2 rounded-lg text-[11px] font-semibold border transition flex items-center justify-center gap-1 ${
+              isPortrait
+                ? 'bg-sky-500/20 text-sky-300 border-sky-500/40'
+                : 'bg-slate-800/80 text-slate-400 border-slate-700/70 hover:text-slate-200'
+            }">
+              <span>Portrait 9:16</span>
+            </button>
+          </div>
+
+          <!-- Long Lens Focal Length (18mm - 200mm) -->
+          <div class="space-y-1">
+            <div class="flex items-center justify-between text-[11px]">
+              <span class="text-slate-400 font-medium">Long Lens (18–200mm)</span>
+              <span class="focal-readout mono text-sky-300 font-semibold">${entry.focalLength} mm</span>
+            </div>
+            <input type="range" min="18" max="200" step="1" value="${entry.focalLength}" class="focal-slider w-full" />
+            <div class="grid grid-cols-5 gap-1 pt-0.5">
+              ${[18, 35, 50, 85, 200].map((mm) => `
+                <button type="button" data-mm="${mm}" class="lens-mm-btn py-0.5 rounded text-[10px] mono border transition ${
+                  entry.focalLength === mm
+                    ? 'bg-sky-500/25 text-sky-200 border-sky-500/40 font-bold'
+                    : 'bg-slate-800/70 text-slate-400 border-slate-700/60 hover:text-white'
+                }">${mm}mm</button>
+              `).join('')}
+            </div>
+          </div>
+
+          <!-- Digital / Optical Zoom (1.0x - 3.0x) & Tilt -->
+          <div class="grid grid-cols-2 gap-2 pt-0.5">
+            <div>
+              <div class="flex justify-between text-[10px] text-slate-400 mb-0.5">
+                <span>Zoom</span>
+                <span class="zoom-readout mono text-amber-300">${entry.zoom.toFixed(1)}x</span>
+              </div>
+              <input type="range" min="1.0" max="3.0" step="0.1" value="${entry.zoom}" class="zoom-slider w-full" />
+            </div>
+            <div>
+              <div class="flex justify-between text-[10px] text-slate-400 mb-0.5">
+                <span>Tilt Pitch</span>
+                <span class="tilt-readout mono text-slate-300">${entry.pitchDeg}°</span>
+              </div>
+              <input type="range" min="-25" max="20" step="1" value="${entry.pitchDeg}" class="tilt-slider w-full" />
+            </div>
+          </div>
+        `;
+
+        const canvasEl = card.querySelector('.cam-feed-canvas');
+        entry.canvasEl = canvasEl;
+        entry.ctx2d = canvasEl.getContext('2d');
+
+        // Click card header or canvas to select & highlight this camera/phone rig in the 3D scene
+        card.querySelector('.select-cam-btn').addEventListener('click', () => {
+          selectFurniture(entry.furnitureItem);
+        });
+        canvasEl.addEventListener('click', () => {
+          selectFurniture(entry.furnitureItem);
+        });
+
+        // Portrait / Landscape buttons
+        card.querySelectorAll('.orient-btn').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            entry.orientation = btn.dataset.orient;
+            syncCameraRigTransform(entry);
+            renderCameraMonitorsUI();
+            showToast(`${entry.name} switched to ${entry.orientation.toUpperCase()}`);
+          });
+        });
+
+        // Long Lens 18mm - 200mm Slider
+        const focalSlider = card.querySelector('.focal-slider');
+        const focalReadout = card.querySelector('.focal-readout');
+        focalSlider.addEventListener('input', (e) => {
+          entry.focalLength = parseInt(e.target.value, 10);
+          focalReadout.textContent = entry.focalLength + ' mm';
+          syncCameraRigTransform(entry);
+          const headerBadge = card.querySelector('.mono');
+          if (headerBadge) headerBadge.textContent = `${entry.focalLength}mm • ${entry.zoom.toFixed(1)}x`;
+        });
+
+        // Quick Lens MM preset buttons (18mm, 35mm, 50mm, 85mm, 200mm)
+        card.querySelectorAll('.lens-mm-btn').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            entry.focalLength = parseInt(btn.dataset.mm, 10);
+            syncCameraRigTransform(entry);
+            renderCameraMonitorsUI();
+          });
+        });
+
+        // Zoom Slider (1.0x - 3.0x)
+        const zoomSlider = card.querySelector('.zoom-slider');
+        const zoomReadout = card.querySelector('.zoom-readout');
+        zoomSlider.addEventListener('input', (e) => {
+          entry.zoom = parseFloat(e.target.value);
+          zoomReadout.textContent = entry.zoom.toFixed(1) + 'x';
+          syncCameraRigTransform(entry);
+          const headerBadge = card.querySelector('.mono');
+          if (headerBadge) headerBadge.textContent = `${entry.focalLength}mm • ${entry.zoom.toFixed(1)}x`;
+        });
+
+        // Tilt Slider
+        const tiltSlider = card.querySelector('.tilt-slider');
+        const tiltReadout = card.querySelector('.tilt-readout');
+        tiltSlider.addEventListener('input', (e) => {
+          entry.pitchDeg = parseInt(e.target.value, 10);
+          tiltReadout.textContent = entry.pitchDeg + '°';
+          syncCameraRigTransform(entry);
+        });
+
+        listEl.appendChild(card);
+      });
+    }
+
+    // ==========================================
+    // MOVABLE 3D FURNITURE & LIGHT RIG BUILDERS
+    // ==========================================
+    const furnitureItems = [];
+    let selectedItem = null;
+    let itemCounter = 1;
+    let camNumberCounter = 1;
+    let phoneNumberCounter = 1;
+
+    // Visual Selection Ring around currently selected furniture
+    const selectionRingGeo = new THREE.RingGeometry(0.65, 0.74, 48);
+    selectionRingGeo.rotateX(-Math.PI / 2);
+    const selectionRingMat = new THREE.MeshBasicMaterial({
+      color: 0x38bdf8,
+      side: THREE.DoubleSide,
+      transparent: true,
+      opacity: 0.9
+    });
+    const selectionRing = new THREE.Mesh(selectionRingGeo, selectionRingMat);
+    selectionRing.position.y = 0.03;
+    selectionRing.visible = false;
+    scene.add(selectionRing);
+
+    function finalizeFurnitureGroup(group, meta) {
+      group.userData = {
+        isFurniture: true,
+        id: 'item-' + (itemCounter++),
+        name: meta.name,
+        kind: meta.kind,
+        radius: meta.radius || 0.8,
+        accentColor: meta.accentColor || '#8b5a2b',
+        accentMaterials: meta.accentMaterials || [],
+        linkedLightId: meta.linkedLightId || null,
+        linkedCameraId: meta.linkedCameraId || null
+      };
+      group.traverse((child) => {
+        if (child.isMesh) {
+          child.castShadow = true;
+          child.receiveShadow = true;
+          child.userData.parentFurniture = group;
+        }
+      });
+      scene.add(group);
+      furnitureItems.push(group);
+      updateInventoryUI();
+      return group;
+    }
+
+    // 1. Podcast Broadcast Desk
+    function createPodcastDesk(x = 0, z = 0, rotY = 0, colorHex = '#8b5a2b') {
+      const group = new THREE.Group();
+      const topMat = new THREE.MeshStandardMaterial({ color: colorHex, roughness: 0.45, metalness: 0.05 });
+      const legMat = new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.4, metalness: 0.7 });
+
+      const top = new THREE.Mesh(new THREE.BoxGeometry(2.3, 0.09, 1.15), topMat);
+      top.position.y = 0.78;
+      group.add(top);
+
+      const deskLedMat = new THREE.MeshBasicMaterial({ color: 0x38bdf8 });
+      const deskLed = new THREE.Mesh(new THREE.BoxGeometry(2.15, 0.025, 1.05), deskLedMat);
+      deskLed.position.y = 0.725;
+      group.add(deskLed);
+
+      const legCoords = [[-1.0, -0.45], [1.0, -0.45], [-1.0, 0.45], [1.0, 0.45]];
+      legCoords.forEach(([lx, lz]) => {
+        const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.025, 0.76, 12), legMat);
+        leg.position.set(lx, 0.38, lz);
+        group.add(leg);
+      });
+
+      const mixerBody = new THREE.Mesh(
+        new THREE.BoxGeometry(0.42, 0.06, 0.32),
+        new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.3, metalness: 0.6 })
+      );
+      mixerBody.position.set(0, 0.84, 0.02);
+      mixerBody.rotation.x = 0.12;
+      group.add(mixerBody);
+
+      const padColors = [0xf43f5e, 0x38bdf8, 0x10b981, 0xf59e0b, 0xa855f7, 0xec4899];
+      padColors.forEach((pc, idx) => {
+        const pad = new THREE.Mesh(
+          new THREE.BoxGeometry(0.05, 0.015, 0.045),
+          new THREE.MeshBasicMaterial({ color: pc })
+        );
+        pad.position.set(0.08 + (idx % 2) * 0.065, 0.875, -0.05 + Math.floor(idx / 2) * 0.06);
+        group.add(pad);
+      });
+
+      [-0.78, 0.78].forEach((mx, sideIdx) => {
+        const dir = sideIdx === 0 ? 1 : -1;
+        const base = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.08, 12), legMat);
+        base.position.set(mx, 0.85, -0.36);
+        group.add(base);
+
+        const arm1 = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.014, 0.45, 8), legMat);
+        arm1.position.set(mx, 1.04, -0.28);
+        arm1.rotation.x = 0.45;
+        group.add(arm1);
+
+        const arm2 = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.38, 8), legMat);
+        arm2.position.set(mx - dir * 0.06, 1.16, -0.05);
+        arm2.rotation.x = 1.25;
+        group.add(arm2);
+
+        const micBody = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.032, 0.032, 0.16, 16),
+          new THREE.MeshStandardMaterial({ color: 0x1e293b, metalness: 0.8, roughness: 0.2 })
+        );
+        micBody.position.set(mx - dir * 0.08, 1.1, 0.12);
+        micBody.rotation.x = Math.PI / 3;
+        group.add(micBody);
+
+        const micFoam = new THREE.Mesh(
+          new THREE.SphereGeometry(0.038, 16, 16),
+          new THREE.MeshStandardMaterial({ color: 0xf43f5e, roughness: 0.9 })
+        );
+        micFoam.position.set(mx - dir * 0.08, 1.07, 0.18);
+        group.add(micFoam);
+      });
+
+      const laptopBase = new THREE.Mesh(
+        new THREE.BoxGeometry(0.34, 0.015, 0.24),
+        new THREE.MeshStandardMaterial({ color: 0x94a3b8, metalness: 0.7, roughness: 0.3 })
+      );
+      laptopBase.position.set(-0.48, 0.83, 0.22);
+      laptopBase.rotation.y = 0.25;
+      group.add(laptopBase);
+
+      const laptopScreen = new THREE.Mesh(
+        new THREE.BoxGeometry(0.34, 0.22, 0.012),
+        new THREE.MeshStandardMaterial({ color: 0x334155, emissive: 0x0ea5e9, emissiveIntensity: 0.35 })
+      );
+      laptopScreen.position.set(-0.51, 0.94, 0.12);
+      laptopScreen.rotation.y = 0.25;
+      laptopScreen.rotation.x = -0.2;
+      group.add(laptopScreen);
+
+      group.position.set(x, 0, z);
+      group.rotation.y = rotY;
+
+      return finalizeFurnitureGroup(group, {
+        name: 'Podcast Broadcast Desk',
+        kind: 'desk',
+        radius: 1.25,
+        accentColor: colorHex,
+        accentMaterials: [topMat]
+      });
+    }
+
+    // 2. Studio Ergonomic Host Chair
+    function createStudioChair(x = 0, z = 0, rotY = 0, colorHex = '#1e293b') {
+      const group = new THREE.Group();
+      const cushionMat = new THREE.MeshStandardMaterial({ color: colorHex, roughness: 0.65 });
+      const frameMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, metalness: 0.7, roughness: 0.3 });
+
+      const column = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.42, 12), frameMat);
+      column.position.y = 0.22;
+      group.add(column);
+
+      for (let i = 0; i < 5; i++) {
+        const angle = (i * Math.PI * 2) / 5;
+        const leg = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.03, 0.04), frameMat);
+        leg.position.set(Math.cos(angle) * 0.15, 0.04, Math.sin(angle) * 0.15);
+        leg.rotation.y = -angle;
+        group.add(leg);
+      }
+
+      const seat = new THREE.Mesh(new THREE.BoxGeometry(0.54, 0.09, 0.52), cushionMat);
+      seat.position.y = 0.46;
+      group.add(seat);
+
+      const back = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.72, 0.09), cushionMat);
+      back.position.set(0, 0.85, -0.22);
+      back.rotation.x = -0.08;
+      group.add(back);
+
+      const headrest = new THREE.Mesh(
+        new THREE.BoxGeometry(0.28, 0.14, 0.06),
+        new THREE.MeshStandardMaterial({ color: 0x38bdf8, roughness: 0.7 })
+      );
+      headrest.position.set(0, 1.15, -0.19);
+      group.add(headrest);
+
+      [-0.28, 0.28].forEach((ax) => {
+        const arm = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.22, 0.32), frameMat);
+        arm.position.set(ax, 0.58, -0.02);
+        group.add(arm);
+      });
+
+      group.position.set(x, 0, z);
+      group.rotation.y = rotY;
+
+      return finalizeFurnitureGroup(group, {
+        name: 'Ergonomic Studio Chair',
+        kind: 'chair',
+        radius: 0.55,
+        accentColor: colorHex,
+        accentMaterials: [cushionMat]
+      });
+    }
+
+    // 3. Cozy Green-Room Lounge Sofa
+    function createLoungeSofa(x = 0, z = 0, rotY = 0, colorHex = '#b91c1c') {
+      const group = new THREE.Group();
+      const fabricMat = new THREE.MeshStandardMaterial({ color: colorHex, roughness: 0.85 });
+      const woodMat = new THREE.MeshStandardMaterial({ color: 0x5c3a21, roughness: 0.5 });
+
+      const base = new THREE.Mesh(new THREE.BoxGeometry(2.1, 0.14, 0.92), woodMat);
+      base.position.y = 0.16;
+      group.add(base);
+
+      [-0.48, 0.48].forEach((cx) => {
+        const seat = new THREE.Mesh(new THREE.BoxGeometry(0.92, 0.22, 0.78), fabricMat);
+        seat.position.set(cx, 0.34, 0.04);
+        group.add(seat);
+      });
+
+      const back = new THREE.Mesh(new THREE.BoxGeometry(2.1, 0.58, 0.22), fabricMat);
+      back.position.set(0, 0.68, -0.35);
+      group.add(back);
+
+      [-0.96, 0.96].forEach((ax) => {
+        const arm = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.48, 0.92), fabricMat);
+        arm.position.set(ax, 0.52, 0);
+        group.add(arm);
+      });
+
+      const pillowMat = new THREE.MeshStandardMaterial({ color: 0xfbbf24, roughness: 0.8 });
+      [-0.72, 0.72].forEach((px, idx) => {
+        const pillow = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.32, 0.12), pillowMat);
+        pillow.position.set(px, 0.58, -0.16);
+        pillow.rotation.z = idx === 0 ? 0.2 : -0.2;
+        group.add(pillow);
+      });
+
+      group.position.set(x, 0, z);
+      group.rotation.y = rotY;
+
+      return finalizeFurnitureGroup(group, {
+        name: 'Studio Lounge Sofa',
+        kind: 'sofa',
+        radius: 1.15,
+        accentColor: colorHex,
+        accentMaterials: [fabricMat]
+      });
+    }
+
+    // 4. Broadcast Cinema Camera on Tripod (with Telephoto Long Lens & Live Monitor Feed!)
+    function createCinemaCamera(x = 0, z = 0, rotY = 0, colorHex = '#1e293b') {
+      const group = new THREE.Group();
+      const bodyMat = new THREE.MeshStandardMaterial({ color: colorHex, metalness: 0.6, roughness: 0.35 });
+      const legMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, metalness: 0.8, roughness: 0.25 });
+
+      for (let i = 0; i < 3; i++) {
+        const angle = (i * Math.PI * 2) / 3;
+        const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.012, 1.35, 10), legMat);
+        leg.position.set(Math.cos(angle) * 0.22, 0.62, Math.sin(angle) * 0.22);
+        leg.rotation.z = Math.cos(angle) * 0.28;
+        leg.rotation.x = -Math.sin(angle) * 0.28;
+        group.add(leg);
+      }
+
+      const camBody = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.22, 0.34), bodyMat);
+      camBody.position.set(0, 1.34, 0);
+      group.add(camBody);
+
+      // Zoom / Long-Lens Barrel (scales dynamically with 18mm-200mm slider!)
+      const lens = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.065, 0.22, 16), legMat);
+      lens.rotation.x = Math.PI / 2;
+      lens.position.set(0, 1.34, 0.24);
+      group.add(lens);
+
+      // Glowing Red Tally Light
+      const tally = new THREE.Mesh(
+        new THREE.SphereGeometry(0.025, 12, 12),
+        new THREE.MeshBasicMaterial({ color: 0xf43f5e })
+      );
+      tally.position.set(0, 1.48, 0.12);
+      group.add(tally);
+
+      // Direction Arrow indicator on floor
+      const arrowGeo = new THREE.ConeGeometry(0.08, 0.22, 12);
+      arrowGeo.rotateX(Math.PI / 2);
+      const arrowMesh = new THREE.Mesh(arrowGeo, new THREE.MeshBasicMaterial({ color: 0xa855f7 }));
+      arrowMesh.position.set(0, 0.06, 0.45);
+      group.add(arrowMesh);
+
+      group.position.set(x, 0, z);
+      group.rotation.y = rotY;
+
+      const labelName = 'Cinema Cam #' + (camNumberCounter++);
+      const item = finalizeFurnitureGroup(group, {
+        name: labelName,
+        kind: 'camera',
+        radius: 0.55,
+        accentColor: colorHex,
+        accentMaterials: [bodyMat]
+      });
+
+      const entry = registerCameraFeed(item, {
+        name: labelName,
+        deviceType: 'camera',
+        orientation: 'landscape',
+        focalLength: 35,
+        zoom: 1.0,
+        pitchDeg: -6,
+        lensMountHeight: 1.34,
+        lensBarrelMesh: lens
+      });
+      syncCameraRigTransform(entry);
+
+      return item;
+    }
+
+    // 4B. NEW: Smartphone + Tripod Rig (with Ring Light, Portrait/Landscape Mount & Live Monitor Feed!)
+    function createPhoneTripod(x = 0, z = 0, rotY = 0, colorHex = '#0f766e') {
+      const group = new THREE.Group();
+      const standMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, metalness: 0.75, roughness: 0.25 });
+      const phoneCaseMat = new THREE.MeshStandardMaterial({ color: colorHex, metalness: 0.4, roughness: 0.3 });
+      const screenMat = new THREE.MeshBasicMaterial({ color: 0x38bdf8 });
+
+      // 3 Tripod Legs + Center Column
+      for (let i = 0; i < 3; i++) {
+        const angle = (i * Math.PI * 2) / 3;
+        const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.01, 0.55, 10), standMat);
+        leg.position.set(Math.cos(angle) * 0.16, 0.22, Math.sin(angle) * 0.16);
+        leg.rotation.z = Math.cos(angle) * 0.35;
+        leg.rotation.x = -Math.sin(angle) * 0.35;
+        group.add(leg);
+      }
+
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.016, 0.02, 1.18, 12), standMat);
+      pole.position.y = 0.65;
+      group.add(pole);
+
+      // Creator LED Ring Light around the Phone Mount
+      const ringLight = new THREE.Mesh(
+        new THREE.TorusGeometry(0.16, 0.016, 12, 32),
+        new THREE.MeshBasicMaterial({ color: 0xf8fafc })
+      );
+      ringLight.position.set(0, 1.26, 0.02);
+      group.add(ringLight);
+
+      // Rotatable Smartphone Clamp Group (rotates 90° when user toggles Portrait vs Landscape!)
+      const phoneMountGroup = new THREE.Group();
+      phoneMountGroup.position.set(0, 1.26, 0.05);
+
+      const phoneBody = new THREE.Mesh(new THREE.BoxGeometry(0.095, 0.19, 0.014), phoneCaseMat);
+      phoneMountGroup.add(phoneBody);
+
+      const phoneScreen = new THREE.Mesh(new THREE.PlaneGeometry(0.084, 0.175), screenMat);
+      phoneScreen.position.z = -0.008;
+      phoneScreen.rotation.y = Math.PI;
+      phoneMountGroup.add(phoneScreen);
+
+      // Triple-lens camera bump on front side facing the subject
+      const bump = new THREE.Mesh(new THREE.BoxGeometry(0.036, 0.045, 0.018), standMat);
+      bump.position.set(0.02, 0.055, 0.006);
+      phoneMountGroup.add(bump);
+
+      group.add(phoneMountGroup);
+
+      // Direction Arrow on floor
+      const arrowGeo = new THREE.ConeGeometry(0.07, 0.18, 12);
+      arrowGeo.rotateX(Math.PI / 2);
+      const arrowMesh = new THREE.Mesh(arrowGeo, new THREE.MeshBasicMaterial({ color: 0x38bdf8 }));
+      arrowMesh.position.set(0, 0.05, 0.38);
+      group.add(arrowMesh);
+
+      group.position.set(x, 0, z);
+      group.rotation.y = rotY;
+
+      const labelName = 'Phone + Tripod #' + (phoneNumberCounter++);
+      const item = finalizeFurnitureGroup(group, {
+        name: labelName,
+        kind: 'phonetripod',
+        radius: 0.45,
+        accentColor: colorHex,
+        accentMaterials: [phoneCaseMat]
+      });
+
+      const entry = registerCameraFeed(item, {
+        name: labelName,
+        deviceType: 'phonetripod',
+        orientation: 'portrait', // Default Portrait 9:16 for Phone+Tripod!
+        focalLength: 24,
+        zoom: 1.0,
+        pitchDeg: -5,
+        lensMountHeight: 1.26,
+        phoneMountGroup: phoneMountGroup
+      });
+      syncCameraRigTransform(entry);
+
+      return item;
+    }
+
+    // 5. Studio Gear Rack & Bookshelf
+    function createGearRack(x = 0, z = 0, rotY = 0, colorHex = '#8b5a2b') {
+      const group = new THREE.Group();
+      const woodMat = new THREE.MeshStandardMaterial({ color: colorHex, roughness: 0.55 });
+      const metalMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, metalness: 0.7, roughness: 0.3 });
+
+      [-0.65, 0.65].forEach((sx) => {
+        const post = new THREE.Mesh(new THREE.BoxGeometry(0.06, 1.85, 0.44), metalMat);
+        post.position.set(sx, 0.925, 0);
+        group.add(post);
+      });
+
+      [0.18, 0.68, 1.18, 1.68].forEach((sy) => {
+        const shelf = new THREE.Mesh(new THREE.BoxGeometry(1.36, 0.05, 0.42), woodMat);
+        shelf.position.set(0, sy, 0);
+        group.add(shelf);
+      });
+
+      [-0.42, 0.42].forEach((mx) => {
+        const spk = new THREE.Mesh(
+          new THREE.BoxGeometry(0.24, 0.34, 0.24),
+          new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.4 })
+        );
+        spk.position.set(mx, 1.88, 0);
+        const cone = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.07, 0.07, 0.02, 16),
+          new THREE.MeshBasicMaterial({ color: 0xfacc15 })
+        );
+        cone.rotation.x = Math.PI / 2;
+        cone.position.set(0, -0.04, 0.125);
+        spk.add(cone);
+        group.add(spk);
+      });
+
+      const amp = new THREE.Mesh(
+        new THREE.BoxGeometry(0.55, 0.18, 0.32),
+        new THREE.MeshStandardMaterial({ color: 0x1e293b, emissive: 0xf59e0b, emissiveIntensity: 0.25 })
+      );
+      amp.position.set(-0.2, 1.3, 0);
+      group.add(amp);
+
+      const bookColors = [0x38bdf8, 0xf43f5e, 0x10b981, 0xa855f7];
+      bookColors.forEach((bc, idx) => {
+        const book = new THREE.Mesh(
+          new THREE.BoxGeometry(0.07, 0.28, 0.26),
+          new THREE.MeshStandardMaterial({ color: bc, roughness: 0.7 })
+        );
+        book.position.set(0.2 + idx * 0.08, 0.85, 0);
+        group.add(book);
+      });
+
+      group.position.set(x, 0, z);
+      group.rotation.y = rotY;
+
+      return finalizeFurnitureGroup(group, {
+        name: 'Studio Gear & Monitor Rack',
+        kind: 'rack',
+        radius: 0.8,
+        accentColor: colorHex,
+        accentMaterials: [woodMat]
+      });
+    }
+
+    // 6. Potted Monstera Studio Plant
+    function createStudioPlant(x = 0, z = 0, rotY = 0, colorHex = '#0f766e') {
+      const group = new THREE.Group();
+      const potMat = new THREE.MeshStandardMaterial({ color: colorHex, roughness: 0.4 });
+      const leafMat = new THREE.MeshStandardMaterial({ color: 0x15803d, roughness: 0.6 });
+
+      const pot = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.2, 0.44, 18), potMat);
+      pot.position.y = 0.22;
+      group.add(pot);
+
+      for (let i = 0; i < 7; i++) {
+        const angle = (i * Math.PI * 2) / 7;
+        const leaf = new THREE.Mesh(new THREE.SphereGeometry(0.22, 12, 12), leafMat);
+        leaf.scale.set(1.1, 0.25, 1.6);
+        leaf.position.set(Math.cos(angle) * 0.22, 0.58 + (i % 3) * 0.14, Math.sin(angle) * 0.22);
+        leaf.rotation.y = -angle;
+        leaf.rotation.x = 0.35;
+        group.add(leaf);
+      }
+
+      group.position.set(x, 0, z);
+      group.rotation.y = rotY;
+
+      return finalizeFurnitureGroup(group, {
+        name: 'Monstera Studio Plant',
+        kind: 'plant',
+        radius: 0.48,
+        accentColor: colorHex,
+        accentMaterials: [potMat]
+      });
+    }
+
+    // 7. Standing Vocal Boom Microphone
+    function createStandingMic(x = 0, z = 0, rotY = 0, colorHex = '#d97706') {
+      const group = new THREE.Group();
+      const standMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, metalness: 0.8, roughness: 0.2 });
+      const capsuleMat = new THREE.MeshStandardMaterial({ color: colorHex, metalness: 0.85, roughness: 0.2 });
+
+      const base = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.26, 0.04, 20), standMat);
+      base.position.y = 0.02;
+      group.add(base);
+
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 1.38, 12), standMat);
+      pole.position.y = 0.7;
+      group.add(pole);
+
+      const boom = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.55, 10), standMat);
+      boom.position.set(0, 1.38, 0.15);
+      boom.rotation.x = 1.1;
+      group.add(boom);
+
+      const mic = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.035, 0.14, 16), capsuleMat);
+      mic.position.set(0, 1.5, 0.38);
+      group.add(mic);
+
+      group.position.set(x, 0, z);
+      group.rotation.y = rotY;
+
+      return finalizeFurnitureGroup(group, {
+        name: 'Standing Vocal Mic',
+        kind: 'standmic',
+        radius: 0.42,
+        accentColor: colorHex,
+        accentMaterials: [capsuleMat]
+      });
+    }
+
+    // 8. Mobile Acoustic Baffle
+    function createAcousticBaffle(x = 0, z = 0, rotY = 0, colorHex = '#6d28d9') {
+      const group = new THREE.Group();
+      const frameMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.5 });
+      const padMat = new THREE.MeshStandardMaterial({ color: colorHex, roughness: 0.9 });
+
+      const panel = new THREE.Mesh(new THREE.BoxGeometry(1.25, 1.75, 0.12), frameMat);
+      panel.position.y = 0.95;
+      group.add(panel);
+
+      const absorber = new THREE.Mesh(new THREE.BoxGeometry(1.12, 1.6, 0.15), padMat);
+      absorber.position.y = 0.95;
+      group.add(absorber);
+
+      [-0.48, 0.48].forEach((fx) => {
+        const foot = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.06, 0.52), frameMat);
+        foot.position.set(fx, 0.03, 0);
+        group.add(foot);
+      });
+
+      group.position.set(x, 0, z);
+      group.rotation.y = rotY;
+
+      return finalizeFurnitureGroup(group, {
+        name: 'Mobile Acoustic Baffle',
+        kind: 'acoustic',
+        radius: 0.72,
+        accentColor: colorHex,
+        accentMaterials: [padMat]
+      });
+    }
+
+    // 9. Movable 3D Key Softbox Light Rig
+    function createSoftboxLightRig(x = 2.2, z = 1.6, rotY = -0.6, lightColor = '#38bdf8', intensity = 1.25) {
+      const group = new THREE.Group();
+      const standMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, metalness: 0.7, roughness: 0.3 });
+      const diffuserMat = new THREE.MeshBasicMaterial({ color: lightColor });
+
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.028, 1.85, 12), standMat);
+      pole.position.y = 0.925;
+      group.add(pole);
+
+      for (let i = 0; i < 3; i++) {
+        const angle = (i * Math.PI * 2) / 3;
+        const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, 0.55, 8), standMat);
+        leg.position.set(Math.cos(angle) * 0.18, 0.18, Math.sin(angle) * 0.18);
+        leg.rotation.z = Math.cos(angle) * 0.5;
+        leg.rotation.x = -Math.sin(angle) * 0.5;
+        group.add(leg);
+      }
+
+      const hood = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.46, 0.28), standMat);
+      hood.position.set(0, 1.88, 0.05);
+      hood.rotation.x = 0.22;
+      group.add(hood);
+
+      const face = new THREE.Mesh(new THREE.PlaneGeometry(0.56, 0.4), diffuserMat);
+      face.position.set(0, 1.85, 0.2);
+      face.rotation.x = 0.22;
+      group.add(face);
+
+      const pLight = new THREE.PointLight(lightColor, intensity, 8.5);
+      pLight.position.set(0, 1.85, 0.35);
+      group.add(pLight);
+
+      group.position.set(x, 0, z);
+      group.rotation.y = rotY;
+
+      const lightId = 'light-rig-' + itemCounter;
+      const item = finalizeFurnitureGroup(group, {
+        name: 'Key Softbox Light Rig',
+        kind: 'softbox',
+        radius: 0.55,
+        accentColor: lightColor,
+        accentMaterials: [diffuserMat],
+        linkedLightId: lightId
+      });
+
+      registerStudioLight({
+        id: lightId,
+        name: 'Key Softbox Rig #' + studioLights.length,
+        type: 'Movable 3D Softbox',
+        light: pLight,
+        enabled: true,
+        intensity: intensity,
+        color: lightColor,
+        emissiveMesh: face,
+        furnitureItem: item
+      });
+
+      return item;
+    }
+
+    // 10. Movable 3D RGB LED Neon Tube Floor Bar
+    function createRgbTubeLightRig(x = -3.1, z = -3.1, rotY = 0.7, lightColor = '#ec4899', intensity = 1.35) {
+      const group = new THREE.Group();
+      const baseMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, metalness: 0.8, roughness: 0.2 });
+      const tubeMat = new THREE.MeshBasicMaterial({ color: lightColor });
+
+      const base = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.26, 0.05, 20), baseMat);
+      base.position.y = 0.025;
+      group.add(base);
+
+      const tube = new THREE.Mesh(new THREE.CylinderGeometry(0.038, 0.038, 1.75, 16), tubeMat);
+      tube.position.y = 0.92;
+      group.add(tube);
+
+      const pLight = new THREE.PointLight(lightColor, intensity, 7.5);
+      pLight.position.set(0, 1.0, 0.15);
+      group.add(pLight);
+
+      group.position.set(x, 0, z);
+      group.rotation.y = rotY;
+
+      const lightId = 'light-tube-' + itemCounter;
+      const item = finalizeFurnitureGroup(group, {
+        name: 'RGB Neon Tube Light',
+        kind: 'rgbtube',
+        radius: 0.42,
+        accentColor: lightColor,
+        accentMaterials: [tubeMat],
+        linkedLightId: lightId
+      });
+
+      registerStudioLight({
+        id: lightId,
+        name: 'RGB Tube Bar #' + studioLights.length,
+        type: 'Movable LED Bar',
+        light: pLight,
+        enabled: true,
+        intensity: intensity,
+        color: lightColor,
+        emissiveMesh: tube,
+        furnitureItem: item
+      });
+
+      return item;
+    }
+
+    // ==========================================
+    // ROOM LAYOUT PRESET BUILDER
+    // ==========================================
+    function clearAllFurniture() {
+      while (furnitureItems.length > 0) {
+        const item = furnitureItems.pop();
+        if (item.userData.linkedLightId) {
+          const idx = studioLights.findIndex((l) => l.id === item.userData.linkedLightId);
+          if (idx !== -1) studioLights.splice(idx, 1);
+        }
+        if (item.userData.linkedCameraId) {
+          const cIdx = studioCameras.findIndex((c) => c.id === item.userData.linkedCameraId);
+          if (cIdx !== -1) studioCameras.splice(cIdx, 1);
+        }
+        scene.remove(item);
+      }
+      camNumberCounter = 1;
+      phoneNumberCounter = 1;
+      selectedItem = null;
+      selectionRing.visible = false;
+      renderLightChannelsUI();
+      renderCameraMonitorsUI();
+      updateInventoryUI();
+    }
+
+    function loadStudioLayout(preset = 'classic') {
+      clearAllFurniture();
+
+      if (preset === 'classic') {
+        const mainDesk = createPodcastDesk(0, -0.25, 0, '#8b5a2b');
+        createStudioChair(-0.65, -1.15, 0.15, '#1e293b');
+        createStudioChair(0.65, -1.15, -0.15, '#1e293b');
+        createLoungeSofa(2.35, 1.55, -Math.PI / 2, '#b91c1c');
+        createGearRack(2.85, -3.35, 0, '#8b5a2b');
+        createCinemaCamera(-1.65, 1.85, 2.45, '#1e293b');
+        createPhoneTripod(0.85, 1.75, 2.8, '#0f766e');
+        createStudioPlant(-3.2, -3.15, 0, '#0f766e');
+        createStudioPlant(3.2, 3.1, 0, '#d97706');
+        createSoftboxLightRig(1.85, 1.95, -0.65, '#38bdf8', 1.25);
+        createRgbTubeLightRig(-3.35, 3.25, 0.75, '#f43f5e', 1.3);
+        selectFurniture(mainDesk);
+      } else if (preset === 'lounge') {
+        const sofa1 = createLoungeSofa(-0.2, -1.45, 0, '#b91c1c');
+        createLoungeSofa(-1.85, 0.35, Math.PI / 2, '#1e293b');
+        createStandingMic(-0.7, -0.55, 0.4, '#d97706');
+        createStandingMic(0.5, -0.55, -0.4, '#d97706');
+        createGearRack(2.75, -3.35, 0, '#8b5a2b');
+        createCinemaCamera(1.85, 1.95, -2.4, '#1e293b');
+        createPhoneTripod(0.2, 1.65, Math.PI, '#0f766e');
+        createStudioPlant(-3.2, -3.1, 0, '#0f766e');
+        createSoftboxLightRig(2.35, -0.2, -1.2, '#fbbf24', 1.35);
+        createRgbTubeLightRig(-3.3, 2.9, 0.8, '#a855f7', 1.4);
+        selectFurniture(sofa1);
+      } else if (preset === 'roundtable') {
+        const desk = createPodcastDesk(0, 0, 0, '#1e293b');
+        createStudioChair(-0.68, -1.05, 0.1, '#b91c1c');
+        createStudioChair(0.68, -1.05, -0.1, '#b91c1c');
+        createStudioChair(-0.68, 1.05, Math.PI - 0.1, '#0f766e');
+        createStudioChair(0.68, 1.05, Math.PI + 0.1, '#0f766e');
+        createAcousticBaffle(2.85, -1.2, -Math.PI / 3, '#6d28d9');
+        createCinemaCamera(-2.1, 2.1, 2.35, '#1e293b');
+        createPhoneTripod(0, 2.25, Math.PI, '#0f766e');
+        createSoftboxLightRig(2.2, 2.1, -0.75, '#38bdf8', 1.35);
+        createRgbTubeLightRig(-3.2, -3.2, 0.75, '#ec4899', 1.45);
+        selectFurniture(desk);
+      }
+      showToast('Loaded "' + preset.toUpperCase() + '" studio layout');
+    }
+
+    // ==========================================
+    // SELECTION & INSPECTOR LOGIC
+    // ==========================================
+    function selectFurniture(item) {
+      selectedItem = item;
+      const inspector = document.getElementById('selected-inspector');
+      if (!item) {
+        selectionRing.visible = false;
+        inspector.classList.add('opacity-50', 'pointer-events-none');
+        document.getElementById('sel-name').textContent = 'No Item Selected';
+        document.getElementById('sel-coords').textContent = 'Click item in 3D';
+        updateInventoryUI();
+        return;
+      }
+
+      inspector.classList.remove('opacity-50', 'pointer-events-none');
+      selectionRing.visible = true;
+      const r = item.userData.radius || 0.75;
+      selectionRing.scale.set(r / 0.7, 1, r / 0.7);
+      selectionRing.position.set(item.position.x, 0.03, item.position.z);
+
+      document.getElementById('sel-name').textContent = item.userData.name;
+      document.getElementById('sel-coords').textContent =
+        `X:${item.position.x.toFixed(1)} Z:${item.position.z.toFixed(1)}`;
+
+      let deg = Math.round(((item.rotation.y * 180) / Math.PI) % 360);
+      if (deg < 0) deg += 360;
+      document.getElementById('sel-rot-slider').value = deg;
+      document.getElementById('sel-rot-label').textContent = deg + '°';
+
+      // Sync camera feed if this item is a camera or phone+tripod
+      if (item.userData.linkedCameraId) {
+        const camEntry = studioCameras.find((c) => c.id === item.userData.linkedCameraId);
+        if (camEntry) syncCameraRigTransform(camEntry);
+      }
+
+      // Highlight active monitor card
+      studioCameras.forEach((c) => {
+        const cardEl = document.getElementById('card-' + c.id);
+        if (cardEl) {
+          cardEl.classList.toggle('cam-card-active', c.furnitureItem === item);
+        }
+      });
+
+      updateInventoryUI();
+    }
+
+    function updateInventoryUI() {
+      const listEl = document.getElementById('inventory-list');
+      document.getElementById('inventory-count').textContent = furnitureItems.length;
+      listEl.innerHTML = '';
+
+      furnitureItems.forEach((item) => {
+        const isSel = item === selectedItem;
+        const row = document.createElement('button');
+        row.type = 'button';
+        row.className = `w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition ${
+          isSel
+            ? 'bg-sky-500/25 text-sky-200 border border-sky-500/40 font-semibold'
+            : 'bg-slate-800/60 hover:bg-slate-800 text-slate-300 border border-transparent'
+        }`;
+        row.innerHTML = `
+          <span class="truncate">${item.userData.name}</span>
+          <span class="mono text-[10px] text-slate-400">(${item.position.x.toFixed(1)}, ${item.position.z.toFixed(1)})</span>
+        `;
+        row.addEventListener('click', () => selectFurniture(item));
+        listEl.appendChild(row);
+      });
+    }
+
+    // ==========================================
+    // INTERACTIVE POINTER RAYCASTING (MOVE / ROTATE / ORBIT)
+    // ==========================================
+    const raycaster = new THREE.Raycaster();
+    const pointer = new THREE.Vector2();
+    const floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+    const planeIntersect = new THREE.Vector3();
+
+    let activeTool = 'move';
+    let snapToGrid = true;
+    let isDraggingItem = false;
+    let isOrbitingCamera = false;
+    let dragOffset = new THREE.Vector3();
+    let prevPointer = { x: 0, y: 0 };
+
+    function setPointerFromEvent(e) {
+      const rect = renderer.domElement.getBoundingClientRect();
+      pointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+      pointer.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+    }
+
+    function clampToStudioFloorX(val, radius = 0.6) {
+      const limit = roomWidth / 2 - radius - 0.15;
+      return Math.max(-limit, Math.min(limit, val));
+    }
+
+    function clampToStudioFloorZ(val, radius = 0.6) {
+      const limit = roomDepth / 2 - radius - 0.15;
+      return Math.max(-limit, Math.min(limit, val));
+    }
+
+    renderer.domElement.addEventListener('pointerdown', (e) => {
+      setPointerFromEvent(e);
+      prevPointer = { x: e.clientX, y: e.clientY };
+
+      if (e.button === 2 || activeTool === 'camera') {
+        isOrbitingCamera = true;
+        return;
+      }
+
+      raycaster.setFromCamera(pointer, camera);
+      const hits = raycaster.intersectObjects(furnitureItems, true);
+
+      if (hits.length > 0) {
+        let hitObj = hits[0].object;
+        while (hitObj && !hitObj.userData.isFurniture) {
+          hitObj = hitObj.parent;
+        }
+        if (hitObj && hitObj.userData.isFurniture) {
+          selectFurniture(hitObj);
+
+          if (activeTool === 'rotate') {
+            hitObj.rotation.y += Math.PI / 4;
+            selectFurniture(hitObj);
+            showToast(`Rotated ${hitObj.userData.name}`);
+            return;
+          }
+
+          if (raycaster.ray.intersectPlane(floorPlane, planeIntersect)) {
+            dragOffset.copy(hitObj.position).sub(planeIntersect);
+            isDraggingItem = true;
+          }
+          return;
+        }
+      } else {
+        isOrbitingCamera = true;
+      }
+    });
+
+    window.addEventListener('pointermove', (e) => {
+      if (isDraggingItem && selectedItem) {
+        setPointerFromEvent(e);
+        raycaster.setFromCamera(pointer, camera);
+        if (raycaster.ray.intersectPlane(floorPlane, planeIntersect)) {
+          let nx = planeIntersect.x + dragOffset.x;
+          let nz = planeIntersect.z + dragOffset.z;
+          if (snapToGrid) {
+            nx = Math.round(nx * 4) / 4;
+            nz = Math.round(nz * 4) / 4;
+          }
+          const r = selectedItem.userData.radius || 0.6;
+          selectedItem.position.x = clampToStudioFloorX(nx, r);
+          selectedItem.position.z = clampToStudioFloorZ(nz, r);
+          selectionRing.position.set(selectedItem.position.x, 0.03, selectedItem.position.z);
+          document.getElementById('sel-coords').textContent =
+            `X:${selectedItem.position.x.toFixed(2)} Z:${selectedItem.position.z.toFixed(2)}`;
+
+          if (selectedItem.userData.linkedCameraId) {
+            const camEntry = studioCameras.find((c) => c.id === selectedItem.userData.linkedCameraId);
+            if (camEntry) syncCameraRigTransform(camEntry);
+          }
+        }
+      } else if (isOrbitingCamera) {
+        const dx = e.clientX - prevPointer.x;
+        const dy = e.clientY - prevPointer.y;
+        prevPointer = { x: e.clientX, y: e.clientY };
+        camState.targetTheta -= dx * 0.007;
+        camState.targetPhi = Math.max(0.22, Math.min(Math.PI / 2 - 0.05, camState.targetPhi + dy * 0.006));
+      }
+    });
+
+    window.addEventListener('pointerup', () => {
+      if (isDraggingItem) {
+        isDraggingItem = false;
+        updateInventoryUI();
+      }
+      isOrbitingCamera = false;
+    });
+
+    renderer.domElement.addEventListener('contextmenu', (e) => e.preventDefault());
+
+    renderer.domElement.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      const factor = e.deltaY > 0 ? 0.92 : 1.08;
+      camState.targetZoom = Math.max(0.45, Math.min(2.6, camState.targetZoom * factor));
+    }, { passive: false });
+
+    // ==========================================
+    // TIME OF DAY CHANGER (24-HOUR SOLAR CYCLE)
+    // ==========================================
+    let currentTimeHours = 17.5;
+    let sunIntensityMultiplier = 1.0;
+    let isTimeLapsePlaying = false;
+
+    function updateTimeOfDay(hours) {
+      currentTimeHours = ((hours % 24) + 24) % 24;
+      const hrs = Math.floor(currentTimeHours);
+      const mins = Math.floor((currentTimeHours - hrs) * 60);
+      const clockStr = String(hrs).padStart(2, '0') + ':' + String(mins).padStart(2, '0');
+      document.getElementById('time-clock-readout').textContent = clockStr;
+      document.getElementById('time-slider').value = currentTimeHours;
+
+      const solarRad = ((currentTimeHours - 6) / 24) * Math.PI * 2;
+      const elevation = Math.sin(solarRad);
+
+      if (celestialOrb) {
+        celestialOrb.position.y = 2.0 + Math.sin(solarRad) * 0.85;
+        celestialOrb.position.z = Math.cos(solarRad) * 1.1;
+      }
+
+      let phaseTitle = 'Daylight Studio';
+      let skyHex = 0x38bdf8;
+      let orbHex = 0xfef08a;
+      let sunHex = 0xffffff;
+      let hemiSkyHex = 0xe0f2fe;
+      let hemiGroundHex = 0x1e293b;
+      let baseSunIntensity = 1.25;
+      let bgHex = 0x0f172a;
+
+      if (currentTimeHours >= 5 && currentTimeHours < 8) {
+        phaseTitle = 'Morning Dawn';
+        skyHex = 0xfb7185;
+        orbHex = 0xfde047;
+        sunHex = 0xfda4af;
+        hemiSkyHex = 0xfecdd3;
+        baseSunIntensity = 0.95;
+        bgHex = 0x161324;
+      } else if (currentTimeHours >= 8 && currentTimeHours < 16) {
+        phaseTitle = 'Bright Daylight';
+        skyHex = 0x38bdf8;
+        orbHex = 0xfef9c3;
+        sunHex = 0xfffbeb;
+        hemiSkyHex = 0xe0f2fe;
+        baseSunIntensity = 1.45;
+        bgHex = 0x111c2d;
+      } else if (currentTimeHours >= 16 && currentTimeHours < 19.5) {
+        phaseTitle = 'Golden Hour Sunset';
+        skyHex = 0xf97316;
+        orbHex = 0xfde047;
+        sunHex = 0xfb923c;
+        hemiSkyHex = 0xfed7aa;
+        baseSunIntensity = 1.2;
+        bgHex = 0x17111a;
+      } else {
+        phaseTitle = 'Late Night Moonlight';
+        skyHex = 0x0f172a;
+        orbHex = 0xe2e8f0;
+        sunHex = 0x60a5fa;
+        hemiSkyHex = 0x1e293b;
+        baseSunIntensity = 0.32;
+        bgHex = 0x070a12;
+      }
+
+      document.getElementById('time-phase-title').textContent = phaseTitle;
+      skyVistaMat.color.setHex(skyHex);
+      celestialOrbMat.color.setHex(orbHex);
+      sunLight.color.setHex(sunHex);
+      hemiLight.color.setHex(hemiSkyHex);
+      hemiLight.groundColor.setHex(hemiGroundHex);
+      scene.background.setHex(bgHex);
+
+      const blindsFactor = blindsClosed ? 0.25 : 1.0;
+      sunLight.intensity = baseSunIntensity * sunIntensityMultiplier * blindsFactor;
+      sunLight.position.set(
+        -roomWidth - 2,
+        Math.max(2.5, 5.5 + elevation * 4.5),
+        Math.cos(solarRad) * 5
+      );
+    }
+
+    // ==========================================
+    // STUDIO LIGHTING RIG UI & MOOD PRESETS
+    // ==========================================
+    function renderLightChannelsUI() {
+      const containerEl = document.getElementById('light-channels-container');
+      if (!containerEl) return;
+      containerEl.innerHTML = '';
+
+      studioLights.forEach((ch) => {
+        const card = document.createElement('div');
+        card.className = 'p-3 rounded-xl bg-slate-900/90 border border-slate-800 space-y-2';
+        card.innerHTML = `
+          <div class="flex items-center justify-between">
+            <div>
+              <div class="text-xs font-semibold text-white">${ch.name}</div>
+              <div class="text-[10px] text-slate-400">${ch.type}</div>
+            </div>
+            <div class="flex items-center gap-1.5">
+              <input type="color" value="${ch.color}" class="w-6 h-6 rounded cursor-pointer bg-transparent border-0" title="Light Color" />
+              <button type="button" class="toggle-light-btn px-2 py-1 rounded text-[10px] font-bold uppercase ${
+                ch.enabled
+                  ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                  : 'bg-slate-800 text-slate-400 border border-slate-700'
+              }">${ch.enabled ? 'ON' : 'OFF'}</button>
+            </div>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="text-[10px] text-slate-400 w-14">Dimmer</span>
+            <input type="range" min="0" max="2.5" step="0.05" value="${ch.intensity}" class="light-dimmer w-full" />
+            <span class="mono text-[10px] text-sky-300 w-9 text-right">${Math.round(ch.intensity * 100)}%</span>
+          </div>
+        `;
+
+        const colorInput = card.querySelector('input[type="color"]');
+        const toggleBtn = card.querySelector('.toggle-light-btn');
+        const dimmerInput = card.querySelector('.light-dimmer');
+        const pctLabel = card.querySelector('.mono');
+
+        colorInput.addEventListener('input', (e) => {
+          ch.color = e.target.value;
+          ch.light.color.set(ch.color);
+          if (ch.emissiveMesh) ch.emissiveMesh.material.color.set(ch.color);
+        });
+
+        toggleBtn.addEventListener('click', () => {
+          ch.enabled = !ch.enabled;
+          ch.light.intensity = ch.enabled ? ch.intensity : 0;
+          if (ch.emissiveMesh) {
+            ch.emissiveMesh.material.color.set(ch.enabled ? ch.color : '#1e293b');
+          }
+          renderLightChannelsUI();
+        });
+
+        dimmerInput.addEventListener('input', (e) => {
+          ch.intensity = parseFloat(e.target.value);
+          ch.enabled = ch.intensity > 0;
+          ch.light.intensity = ch.intensity;
+          pctLabel.textContent = Math.round(ch.intensity * 100) + '%';
+        });
+
+        if (ch.furnitureItem) {
+          card.addEventListener('click', (e) => {
+            if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'BUTTON') {
+              selectFurniture(ch.furnitureItem);
+            }
+          });
+        }
+
+        containerEl.appendChild(card);
+      });
+    }
+
+    function applyLightingMood(mood) {
+      const presets = {
+        cyber: ['#c084fc', '#38bdf8', '#f43f5e'],
+        warm: ['#fbbf24', '#f97316', '#fde047'],
+        broadcast: ['#f8fafc', '#bae6fd', '#38bdf8'],
+        noir: ['#10b981', '#06b6d4', '#34d399']
+      };
+      const palette = presets[mood] || presets.cyber;
+      studioLights.forEach((ch, idx) => {
+        const col = palette[idx % palette.length];
+        ch.color = col;
+        ch.enabled = true;
+        ch.intensity = 1.35;
+        ch.light.color.set(col);
+        ch.light.intensity = 1.35;
+        if (ch.emissiveMesh) ch.emissiveMesh.material.color.set(col);
+      });
+      renderLightChannelsUI();
+      showToast(`Applied "${mood.toUpperCase()}" studio lighting mood`);
+    }
+
+    // ==========================================
+    // UI EVENT LISTENERS & CONTROLS BINDING
+    // ==========================================
+    document.querySelectorAll('.tool-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        activeTool = btn.dataset.tool;
+        document.querySelectorAll('.tool-btn').forEach((b) => b.classList.remove('active'));
+        btn.classList.add('active');
+        const hints = {
+          move: 'Move Tool active: Click & drag any furniture, camera, or phone tripod on the floor.',
+          rotate: 'Rotate Tool active: Click any item in 3D to rotate it 45°.',
+          camera: 'Orbit Camera active: Drag anywhere to rotate the 3D orthographic view.'
+        };
+        document.getElementById('hud-hint').textContent = hints[activeTool];
+      });
+    });
+
+    // Grid Snap Toggle
+    document.getElementById('btn-grid-snap').addEventListener('click', () => {
+      snapToGrid = !snapToGrid;
+      if (gridHelper) gridHelper.visible = snapToGrid;
+      document.getElementById('snap-label').textContent = snapToGrid ? 'Snap: ON' : 'Snap: Free';
+      showToast(snapToGrid ? 'Floor Grid Snap Enabled (0.25m)' : 'Free Smooth Placement Enabled');
+    });
+
+    // Left Sidebar Tab Switching (Furniture, Room Size, Time, Lighting)
+    function switchLeftTab(tabName) {
+      document.querySelectorAll('.tab-btn').forEach((b) => {
+        b.classList.toggle('active', b.dataset.tab === tabName);
+      });
+      ['furniture', 'room', 'time', 'lighting'].forEach((t) => {
+        document.getElementById('tab-panel-' + t).classList.toggle('hidden', t !== tabName);
+      });
+    }
+
+    document.querySelectorAll('.tab-btn').forEach((btn) => {
+      btn.addEventListener('click', () => switchLeftTab(btn.dataset.tab));
+    });
+
+    document.getElementById('btn-jump-room-resize').addEventListener('click', () => {
+      switchLeftTab('room');
+    });
+
+    // Room Resize Sliders & Presets
+    document.getElementById('room-width-slider').addEventListener('input', (e) => {
+      roomWidth = parseFloat(e.target.value);
+      buildStudioRoomGeometry();
+    });
+    document.getElementById('room-depth-slider').addEventListener('input', (e) => {
+      roomDepth = parseFloat(e.target.value);
+      buildStudioRoomGeometry();
+    });
+    document.getElementById('room-height-slider').addEventListener('input', (e) => {
+      wallHeight = parseFloat(e.target.value);
+      buildStudioRoomGeometry();
+    });
+
+    document.querySelectorAll('.room-size-preset').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const [w, d, h] = btn.dataset.roomsize.split(',').map(Number);
+        roomWidth = w;
+        roomDepth = d;
+        wallHeight = h;
+        document.getElementById('room-width-slider').value = w;
+        document.getElementById('room-depth-slider').value = d;
+        document.getElementById('room-height-slider').value = h;
+        buildStudioRoomGeometry();
+        showToast(`Resized room to ${w}m × ${d}m (H: ${h}m)`);
+      });
+    });
+
+    // Orthographic Camera Presets
+    document.querySelectorAll('.cam-preset-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const preset = btn.dataset.cam;
+        const isoPhi = Math.atan(1 / Math.sqrt(2));
+        if (preset === 'iso-ne') { camState.targetTheta = Math.PI / 4; camState.targetPhi = isoPhi; }
+        if (preset === 'iso-se') { camState.targetTheta = (3 * Math.PI) / 4; camState.targetPhi = isoPhi; }
+        if (preset === 'iso-sw') { camState.targetTheta = -Math.PI / 4; camState.targetPhi = isoPhi; }
+        if (preset === 'top') { camState.targetTheta = 0; camState.targetPhi = Math.PI / 2 - 0.02; }
+      });
+    });
+
+    document.getElementById('btn-zoom-in').addEventListener('click', () => {
+      camState.targetZoom = Math.min(2.5, camState.targetZoom * 1.18);
+    });
+    document.getElementById('btn-zoom-out').addEventListener('click', () => {
+      camState.targetZoom = Math.max(0.45, camState.targetZoom * 0.84);
+    });
+
+    // ON AIR Neon Sign Toggle
+    document.getElementById('btn-on-air').addEventListener('click', () => {
+      isOnAir = !isOnAir;
+      onAirLight.intensity = isOnAir ? 1.15 : 0;
+      onAirFaceMat.map = createOnAirTexture(isOnAir);
+      onAirFaceMat.needsUpdate = true;
+      document.getElementById('on-air-dot').classList.toggle('animate-ping', isOnAir);
+      document.getElementById('on-air-dot').classList.toggle('bg-rose-500', isOnAir);
+      document.getElementById('on-air-dot').classList.toggle('bg-slate-500', !isOnAir);
+      showToast(isOnAir ? 'ON AIR Neon Sign Illuminated' : 'ON AIR Sign Switched Off');
+    });
+
+    // Selected Item Rotation Slider & +45° Button
+    document.getElementById('sel-rot-slider').addEventListener('input', (e) => {
+      if (!selectedItem) return;
+      const deg = parseFloat(e.target.value);
+      selectedItem.rotation.y = (deg * Math.PI) / 180;
+      document.getElementById('sel-rot-label').textContent = deg + '°';
+      if (selectedItem.userData.linkedCameraId) {
+        const camEntry = studioCameras.find((c) => c.id === selectedItem.userData.linkedCameraId);
+        if (camEntry) syncCameraRigTransform(camEntry);
+      }
+    });
+
+    document.getElementById('btn-rot-45').addEventListener('click', () => {
+      if (!selectedItem) return;
+      selectedItem.rotation.y += Math.PI / 4;
+      selectFurniture(selectedItem);
+    });
+
+    // Selected Item Nudge Buttons
+    document.querySelectorAll('.nudge-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        if (!selectedItem) return;
+        const [dx, dz] = btn.dataset.nudge.split(',').map(Number);
+        const r = selectedItem.userData.radius || 0.6;
+        selectedItem.position.x = clampToStudioFloorX(selectedItem.position.x + dx, r);
+        selectedItem.position.z = clampToStudioFloorZ(selectedItem.position.z + dz, r);
+        selectFurniture(selectedItem);
+      });
+    });
+
+    // Selected Item Material Color Swatches
+    document.querySelectorAll('.swatch-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        if (!selectedItem) return;
+        const hex = btn.dataset.color;
+        selectedItem.userData.accentColor = hex;
+        (selectedItem.userData.accentMaterials || []).forEach((mat) => mat.color.set(hex));
+        if (selectedItem.userData.linkedLightId) {
+          const ch = studioLights.find((l) => l.id === selectedItem.userData.linkedLightId);
+          if (ch) {
+            ch.color = hex;
+            ch.light.color.set(hex);
+            renderLightChannelsUI();
+          }
+        }
+      });
+    });
+
+    // Clone & Delete Selected Item
+    document.getElementById('btn-duplicate-item').addEventListener('click', () => {
+      if (!selectedItem) return;
+      const kind = selectedItem.userData.kind;
+      const nx = clampToStudioFloorX(selectedItem.position.x + 0.65, selectedItem.userData.radius);
+      const nz = clampToStudioFloorZ(selectedItem.position.z + 0.65, selectedItem.userData.radius);
+      const col = selectedItem.userData.accentColor;
+      spawnFurnitureByKind(kind, nx, nz, selectedItem.rotation.y, col);
+    });
+
+    function deleteSelectedFurniture() {
+      if (!selectedItem) return;
+      const name = selectedItem.userData.name;
+      if (selectedItem.userData.linkedLightId) {
+        const lIdx = studioLights.findIndex((l) => l.id === selectedItem.userData.linkedLightId);
+        if (lIdx !== -1) studioLights.splice(lIdx, 1);
+        renderLightChannelsUI();
+      }
+      if (selectedItem.userData.linkedCameraId) {
+        const cIdx = studioCameras.findIndex((c) => c.id === selectedItem.userData.linkedCameraId);
+        if (cIdx !== -1) studioCameras.splice(cIdx, 1);
+        renderCameraMonitorsUI();
+      }
+      const idx = furnitureItems.indexOf(selectedItem);
+      if (idx !== -1) furnitureItems.splice(idx, 1);
+      scene.remove(selectedItem);
+      selectFurniture(furnitureItems[furnitureItems.length - 1] || null);
+      showToast(`Removed ${name}`);
+    }
+
+    document.getElementById('btn-delete-item').addEventListener('click', deleteSelectedFurniture);
+
+    // Spawn New Furniture Catalog Buttons
+    function spawnFurnitureByKind(kind, x = 0, z = 1.2, rot = Math.PI, col = null) {
+      const jitterX = clampToStudioFloorX(x + (Math.random() - 0.5) * 0.6, 0.6);
+      const jitterZ = clampToStudioFloorZ(z + (Math.random() - 0.5) * 0.6, 0.6);
+      let newItem = null;
+      if (kind === 'desk') newItem = createPodcastDesk(jitterX, jitterZ, 0, col || '#8b5a2b');
+      if (kind === 'chair') newItem = createStudioChair(jitterX, jitterZ, 0, col || '#1e293b');
+      if (kind === 'sofa') newItem = createLoungeSofa(jitterX, jitterZ, 0, col || '#b91c1c');
+      if (kind === 'camera') newItem = createCinemaCamera(jitterX, jitterZ, rot, col || '#1e293b');
+      if (kind === 'phonetripod') newItem = createPhoneTripod(jitterX, jitterZ, rot, col || '#0f766e');
+      if (kind === 'rack') newItem = createGearRack(jitterX, jitterZ, 0, col || '#8b5a2b');
+      if (kind === 'plant') newItem = createStudioPlant(jitterX, jitterZ, 0, col || '#0f766e');
+      if (kind === 'standmic') newItem = createStandingMic(jitterX, jitterZ, 0, col || '#d97706');
+      if (kind === 'acoustic') newItem = createAcousticBaffle(jitterX, jitterZ, 0, col || '#6d28d9');
+      if (kind === 'softbox') newItem = createSoftboxLightRig(jitterX, jitterZ, -0.5, col || '#38bdf8');
+      if (kind === 'rgbtube') newItem = createRgbTubeLightRig(jitterX, jitterZ, 0.5, col || '#ec4899');
+      if (newItem) {
+        selectFurniture(newItem);
+        showToast(`Added ${newItem.userData.name}`);
+      }
+    }
+
+    document.querySelectorAll('.spawn-btn').forEach((btn) => {
+      btn.addEventListener('click', () => spawnFurnitureByKind(btn.dataset.spawn));
+    });
+
+    document.getElementById('btn-quick-add-phone').addEventListener('click', () => {
+      spawnFurnitureByKind('phonetripod', 0.4, 1.8, Math.PI);
+    });
+    document.getElementById('btn-quick-add-cam').addEventListener('click', () => {
+      spawnFurnitureByKind('camera', -1.2, 1.9, 2.5);
+    });
+
+    document.getElementById('btn-add-softbox').addEventListener('click', () => spawnFurnitureByKind('softbox', 1.4, 1.4, -0.5));
+    document.getElementById('btn-add-rgbtube').addEventListener('click', () => spawnFurnitureByKind('rgbtube', -1.8, -1.8, 0.5));
+
+    // Layout Presets & Reset
+    document.querySelectorAll('.layout-preset-btn').forEach((btn) => {
+      btn.addEventListener('click', () => loadStudioLayout(btn.dataset.layout));
+    });
+    document.getElementById('btn-reset-room').addEventListener('click', () => loadStudioLayout('classic'));
+
+    // Time of Day Controls
+    document.getElementById('time-slider').addEventListener('input', (e) => {
+      updateTimeOfDay(parseFloat(e.target.value));
+    });
+
+    document.querySelectorAll('.time-preset-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        updateTimeOfDay(parseFloat(btn.dataset.time));
+        showToast('Updated studio solar time');
+      });
+    });
+
+    document.getElementById('btn-timelapse').addEventListener('click', (e) => {
+      isTimeLapsePlaying = !isTimeLapsePlaying;
+      e.currentTarget.textContent = isTimeLapsePlaying ? 'Pause Cycle' : 'Play Cycle';
+      e.currentTarget.classList.toggle('bg-sky-500/25', isTimeLapsePlaying);
+      e.currentTarget.classList.toggle('text-sky-300', isTimeLapsePlaying);
+    });
+
+    document.getElementById('sun-intensity-slider').addEventListener('input', (e) => {
+      sunIntensityMultiplier = parseFloat(e.target.value) / 100;
+      document.getElementById('sun-intensity-label').textContent = e.target.value + '%';
+      updateTimeOfDay(currentTimeHours);
+    });
+
+    document.getElementById('btn-toggle-blinds').addEventListener('click', (e) => {
+      blindsClosed = !blindsClosed;
+      if (blindsGroup) blindsGroup.visible = blindsClosed;
+      e.currentTarget.textContent = blindsClosed ? 'Blinds: Closed' : 'Blinds: Open';
+      updateTimeOfDay(currentTimeHours);
+    });
+
+    // Lighting Mood Presets
+    document.querySelectorAll('.mood-btn').forEach((btn) => {
+      btn.addEventListener('click', () => applyLightingMood(btn.dataset.mood));
+    });
+
+    // Keyboard Shortcuts
+    window.addEventListener('keydown', (e) => {
+      if (e.target.tagName === 'INPUT') return;
+      if (e.key.toLowerCase() === 'r' && selectedItem) {
+        selectedItem.rotation.y += Math.PI / 4;
+        selectFurniture(selectedItem);
+      } else if (e.key === 'Delete' || e.key === 'Backspace') {
+        deleteSelectedFurniture();
+      } else if (e.key.toLowerCase() === 'v') {
+        document.getElementById('tool-move').click();
+      } else if (e.key.toLowerCase() === 'c') {
+        document.getElementById('tool-camera').click();
+      }
+    });
+
+    // Snapshot PNG Export
+    document.getElementById('btn-snapshot').addEventListener('click', () => {
+      const prevRing = selectionRing.visible;
+      selectionRing.visible = false;
+      renderer.render(scene, camera);
+      const dataUrl = renderer.domElement.toDataURL('image/png');
+      selectionRing.visible = prevRing;
+      const link = document.createElement('a');
+      link.download = 'voxcast-3d-podcast-studio.png';
+      link.href = dataUrl;
+      link.click();
+      showToast('Captured studio PNG snapshot!');
+    });
+
+    // ==========================================
+    // WEB AUDIO SYNTHESIZED STUDIO AMBIENCE & VU METER
+    // ==========================================
+    let audioCtx = null;
+    let isAudioActive = false;
+    let audioGain = null;
+
+    document.getElementById('btn-audio-test').addEventListener('click', () => {
+      if (!audioCtx) {
+        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+        audioCtx = new AudioContextClass();
+        const osc1 = audioCtx.createOscillator();
+        const osc2 = audioCtx.createOscillator();
+        const filter = audioCtx.createBiquadFilter();
+        audioGain = audioCtx.createGain();
+
+        osc1.type = 'triangle';
+        osc1.frequency.value = 110;
+        osc2.type = 'sine';
+        osc2.frequency.value = 164.81;
+
+        filter.type = 'lowpass';
+        filter.frequency.value = 320;
+        audioGain.gain.value = 0.0;
+
+        osc1.connect(filter);
+        osc2.connect(filter);
+        filter.connect(audioGain);
+        audioGain.connect(audioCtx.destination);
+        osc1.start();
+        osc2.start();
+      }
+
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+      isAudioActive = !isAudioActive;
+      audioGain.gain.setTargetAtTime(isAudioActive ? 0.035 : 0.0, audioCtx.currentTime, 0.15);
+      document.getElementById('audio-status-label').textContent = isAudioActive ? 'Mic Check: Live' : 'Mic Check: Off';
+      showToast(isAudioActive ? 'Studio Warm Synth Monitor Active' : 'Studio Audio Muted');
+    });
+
+    // ==========================================
+    // RESIZE & MAIN ANIMATION LOOP
+    // ==========================================
+    window.addEventListener('resize', () => {
+      aspect = window.innerWidth / window.innerHeight;
+      camera.left = (-frustumSize * aspect) / 2;
+      camera.right = (frustumSize * aspect) / 2;
+      camera.top = frustumSize / 2;
+      camera.bottom = -frustumSize / 2;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    // Build initial studio room, furniture layout, and solar time
+    buildStudioRoomGeometry();
+    loadStudioLayout('classic');
+    updateTimeOfDay(17.5);
+
+    const vuBars = document.querySelectorAll('#vu-meter-bars > div');
+    let clock = new THREE.Clock();
+
+    function renderLiveCameraMonitors() {
+      const prevRingVisible = selectionRing.visible;
+      const prevGridVisible = gridHelper ? gridHelper.visible : false;
+      selectionRing.visible = false;
+      if (gridHelper) gridHelper.visible = false;
+
+      studioCameras.forEach((entry) => {
+        if (!entry.canvasEl || !entry.ctx2d || !entry.furnitureItem) return;
+        syncCameraRigTransform(entry);
+
+        const cw = entry.canvasEl.width;
+        const ch = entry.canvasEl.height;
+        if (pipRenderer.domElement.width !== cw || pipRenderer.domElement.height !== ch) {
+          pipRenderer.setSize(cw, ch, false);
+        }
+
+        // Hide the camera rig itself while rendering from its own lens so it doesn't block its own view
+        entry.furnitureItem.visible = false;
+        pipRenderer.render(scene, entry.camera);
+        entry.furnitureItem.visible = true;
+
+        entry.ctx2d.clearRect(0, 0, cw, ch);
+        entry.ctx2d.drawImage(pipRenderer.domElement, 0, 0, cw, ch);
+
+        // Subtle Rule-of-Thirds Broadcast Viewfinder Grid Overlay
+        entry.ctx2d.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+        entry.ctx2d.lineWidth = 1;
+        entry.ctx2d.beginPath();
+        entry.ctx2d.moveTo(cw / 3, 0); entry.ctx2d.lineTo(cw / 3, ch);
+        entry.ctx2d.moveTo((cw * 2) / 3, 0); entry.ctx2d.lineTo((cw * 2) / 3, ch);
+        entry.ctx2d.moveTo(0, ch / 3); entry.ctx2d.lineTo(cw, ch / 3);
+        entry.ctx2d.moveTo(0, (ch * 2) / 3); entry.ctx2d.lineTo(cw, (ch * 2) / 3);
+        entry.ctx2d.stroke();
+      });
+
+      selectionRing.visible = prevRingVisible;
+      if (gridHelper) gridHelper.visible = prevGridVisible;
+    }
+
+    function animate() {
+      requestAnimationFrame(animate);
+      const dt = clock.getDelta();
+      const elapsed = clock.getElapsedTime();
+
+      updateCameraTransform();
+
+      if (selectionRing.visible) {
+        selectionRingMat.opacity = 0.65 + Math.sin(elapsed * 4) * 0.25;
+      }
+
+      if (isTimeLapsePlaying) {
+        updateTimeOfDay(currentTimeHours + dt * 1.4);
+      }
+
+      vuBars.forEach((bar, idx) => {
+        const amp = isAudioActive || isOnAir
+          ? 25 + Math.abs(Math.sin(elapsed * (4 + idx * 1.3))) * 75
+          : 15;
+        bar.style.height = `${Math.min(100, Math.max(15, amp))}%`;
+      });
+
+      // Render main 3D Orthographic Viewport
+      renderer.render(scene, camera);
+
+      // Render each Camera / Phone+Tripod Live Feed on the Right Dock
+      renderLiveCameraMonitors();
+    }
+
+    window.onload = animate;
+  </script>
+</body>
+</html>
